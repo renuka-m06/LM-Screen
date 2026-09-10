@@ -1,0 +1,69 @@
+{
+  "profile_id": "LM_COMMON_2026.1",
+  "name": "General Packaged Commodities Screening Profile",
+  "version": "2026.1",
+  "effective_date": "2026-01-01",
+  "rules": [
+    {
+      "rule_id": "LM001",
+      "name": "MRP Declaration Screening",
+      "description": "Checks for visible Maximum Retail Price (MRP) declaration including taxes.",
+      "applies_when": { "market_context": ["retail", "unknown"] },
+      "required_fields": ["mrp"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(e) Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM002",
+      "name": "Net Quantity Declaration Screening",
+      "description": "Checks for visible Net Quantity statement with standard metric units.",
+      "applies_when": { "market_context": ["retail", "institutional", "unknown"] },
+      "required_fields": ["net_quantity"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(c) Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM003",
+      "name": "Date of Manufacture/Packing/Import Screening",
+      "description": "Checks for visible Month and Year of manufacture, packing, or import.",
+      "applies_when": { "market_context": ["retail", "unknown"] },
+      "required_fields": ["manufacture_date", "packing_date", "import_date"],
+      "require_any": true,
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(d) Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM004",
+      "name": "Manufacturer/Packer/Importer Identity & Address",
+      "description": "Checks for visible name and complete postal address of manufacturer/packer/importer.",
+      "applies_when": { "market_context": ["retail", "unknown"] },
+      "required_fields": ["manufacturer_or_packer", "address"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(a) Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM005",
+      "name": "Consumer Care Contact Information",
+      "description": "Checks for visible Consumer Care details (Name, Address, Phone, or Email).",
+      "applies_when": { "market_context": ["retail", "unknown"] },
+      "required_fields": ["consumer_care"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(2) Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM006",
+      "name": "Country of Origin (Imported Goods)",
+      "description": "Checks for explicit Country of Origin declaration on imported pre-packaged goods.",
+      "applies_when": { "origin": ["imported"] },
+      "required_fields": ["country_of_origin"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(n) Legal Metrology (Packaged Commodities) Rules, 2011"
+    }
+  ]
+}

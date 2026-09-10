@@ -1,0 +1,19 @@
+{
+  "profile_id": "LM_FOOD_2026.1",
+  "name": "Food Commodity Legal Metrology & Basic Labelling Profile",
+  "version": "2026.1",
+  "effective_date": "2026-01-01",
+  "parent_profile": "LM_COMMON_2026.1",
+  "rules": [
+    {
+      "rule_id": "LM_FOOD001",
+      "name": "Best Before / Expiry Date Screening",
+      "description": "Checks for visible Best Before or Expiry Date declaration for pre-packaged food commodities.",
+      "applies_when": { "product_category": ["food", "beverage"] },
+      "required_fields": ["best_before"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "FSSAI Packaging & Labelling Regulations & Legal Metrology Rules"
+    }
+  ]
+}

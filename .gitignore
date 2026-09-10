@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# SQLite
+*.db
+*.sqlite3
+
+# Node / React
+node_modules/
+dist/
+build/
+.npm
+*.log
+
+# Environment & Secrets
+.env
+*.pem
+*.key
+
+# Data & Uploads
+uploads/*
+!uploads/.gitkeep
+data/*
+!data/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary Scratch Files
+scratch/
+
