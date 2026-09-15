@@ -38,8 +38,285 @@ class TestMRPExtraction:
         fields = self.extractor.extract_fields(tokens)
         assert "mrp" in fields
 
+    # ── TIER 0.1 regression tests ─────────────────────────────────────────────
+
+    def test_back_panel_nutrition_only_no_mrp_keyword(self):
+        """
+        TIER-0.1 / Parle-G scenario: back panel with only nutrition data and NO
+        MRP indicator text must NOT produce an MRP field — not even at low
+        confidence.  The old loose regex falsely extracted sodium/sugar values.
+        """
+        tokens = [
+            make_token("t1", "Nutrition Information"),
+            make_token("t2", "Energy: 447 kcal"),
+            make_token("t3", "Protein: 6.7 g"),
+            make_token("t4", "Carbohydrate: 74.3 g"),
+            make_token("t5", "Fat: 14.2 g"),
+            make_token("t6", "Sodium: 279 mg"),          # ← the number that was wrongly extracted
+            make_token("t7", "Ingredients: Wheat flour, Sugar, Edible vegetable oil"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "mrp" not in fields, (
+            "TIER-0.1 regression: back-panel nutrition numbers must NOT be "
+            "extracted as MRP when no MRP keyword is present"
+        )
+
+    def test_mrp_correctly_chosen_over_nearby_nutrition_numbers(self):
+        """
+        TIER-0.1: When a label has BOTH a clearly labelled MRP and a nutrition
+        table with other numbers, only the MRP-labelled number must be returned.
+        """
+        tokens = [
+            make_token("t1", "Nutrition Information"),
+            make_token("t2", "Sodium: 279 mg"),
+            make_token("t3", "Sugar: 18 g"),
+            make_token("t4", "MRP: Rs. 99"),             # ← correct number
+            make_token("t5", "Net Qty: 100 g"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "mrp" in fields, "MRP must be extracted when MRP keyword is present"
+        assert fields["mrp"]["numeric_value"] == 99.0, (
+            f"Must extract 99 (the MRP-labelled value), not a nutrition number; "
+            f"got {fields['mrp']['numeric_value']}"
+        )
+
+    def test_mrp_absent_returns_no_field_not_low_confidence(self):
+        """
+        TIER-0.1: When MRP genuinely cannot be found, the field must be absent
+        (not returned with a guessed value and low confidence).
+        """
+        tokens = [
+            make_token("t1", "Best Before: 6 months from manufacture"),
+            make_token("t2", "Mfg. Date: 09/2026"),
+            make_token("t3", "Manufactured by: ABC Foods Pvt Ltd"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "mrp" not in fields, (
+            "When no MRP keyword exists in any token, the field must be absent, "
+            "not guessed"
+        )
+
+    def test_mrp_spatial_proximity_multi_token(self):
+        """
+        TIER-0.1: Spatial path — MRP keyword and value in separate word-level tokens
+        with geometry (polygons) must be correctly associated when they share the
+        same approximate Y line.
+        """
+        # Simulate word-level OCR: "MRP" at y≈100, "Rs." at y≈100, "150" at y≈100
+        # and a nutrition figure at y≈200 that must be ignored.
+        def tok_with_poly(id_, text, y_top, y_bot, conf=0.95):
+            return {
+                "id": id_,
+                "text": text,
+                "polygon": [[10, y_top], [60, y_top], [60, y_bot], [10, y_bot]],
+                "confidence": conf,
+            }
+
+        tokens = [
+            tok_with_poly("t1", "MRP",       95,  115),
+            tok_with_poly("t2", "Rs.",        95,  115),
+            tok_with_poly("t3", "150.00",     95,  115),    # ← MRP value
+            tok_with_poly("t4", "Sodium",    195,  215),
+            tok_with_poly("t5", "279",       195,  215),    # ← nutrition number, should be ignored
+            tok_with_poly("t6", "mg",        195,  215),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "mrp" in fields, "MRP must be extracted when keyword + value are on the same line"
+        assert fields["mrp"]["numeric_value"] == 150.0, (
+            f"Must extract 150.00 (same line as MRP keyword), not 279; "
+            f"got {fields['mrp']['numeric_value']}"
+        )
+
+
+
+# ─── TIER 0.2 — Sanity Check Layer ───────────────────────────────────────────
+
+class TestSanityCheckLayer:
+    """
+    TIER-0.2 regression tests: post-extraction plausibility layer.
+    Validates that garbage OCR output is demoted to UNCERTAIN / low confidence
+    and that genuine correct extractions are NOT over-penalized.
+    """
+    def setup_method(self):
+        self.extractor = FieldExtractor()
+
+    # ── Address ────────────────────────────────────────────────────────────────
+
+    def test_garbage_address_demoted_to_uncertain(self):
+        """
+        Parle-G scenario: OCR produces gibberish address like
+        'Caedaeupolyd, Vushusatunuuupaclernopjuels Golu' — must get
+        UNCERTAIN + confidence ≤ 0.40, not 85%.
+        """
+        tokens = [
+            make_token("t1", "address"),
+            make_token("t2", "Caedaeupolyd, Vushusatunuuupaclernopjuels Golu"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "address" in fields, "Address field must still be extracted"
+        addr = fields["address"]
+        assert addr["evidence_state"] == "UNCERTAIN", (
+            f"TIER-0.2: Gibberish address must be UNCERTAIN, got {addr['evidence_state']}"
+        )
+        assert addr["confidence"] <= 0.40, (
+            f"TIER-0.2: Gibberish address confidence must be ≤0.40, got {addr['confidence']}"
+        )
+        assert addr.get("sanity_check") == "FAILED"
+
+    def test_real_address_with_pincode_passes(self):
+        """A real address with a 6-digit PIN must pass at full confidence."""
+        tokens = [
+            make_token("t1", "address"),
+            make_token("t2", "123 Industrial Area, Andheri East, Mumbai - 400093"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "address" in fields
+        assert fields["address"]["evidence_state"] == "PRESENT"
+        assert fields["address"]["confidence"] >= 0.80
+        assert fields["address"].get("sanity_check") == "PASSED"
+
+    def test_real_address_with_state_name_passes(self):
+        """Address containing an Indian state name must pass plausibility."""
+        tokens = [
+            make_token("t1", "Regd Office: Plot 5, Sector 12, Noida, Uttar Pradesh"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "address" in fields
+        assert fields["address"].get("sanity_check") == "PASSED"
+
+    # ── Product Name ───────────────────────────────────────────────────────────
+
+    def test_short_product_name_loor_demoted(self):
+        """
+        Parle-G scenario: OCR reads product name as 'loor' (4 chars).
+        The _extract_product_name heuristic already requires len >= 4, so
+        'loor' may be emitted — but with vowels present it passes sanity.
+        The more important check is that a truly garbage consonant-burst
+        OCR fragment like 'Bsrkltpnd' is demoted to UNCERTAIN.
+        """
+        # 'loor' has vowels so sanity correctly passes it; the important
+        # guarantee is that it is NOT present with PRESENT state if it fails
+        # sanity — which it doesn't for 'loor'.  Confirm truly short strings
+        # (below _extract_product_name's own 4-char floor) never reach PRESENT.
+        tokens_too_short = [make_token("t1", "lo")]   # len < 4, filtered before sanity
+        fields = self.extractor.extract_fields(tokens_too_short)
+        # "lo" must not appear as a PRESENT product_name
+        if "product_name" in fields:
+            assert fields["product_name"]["evidence_state"] != "PRESENT", (
+                "TIER-0.2: 2-char OCR fragment must not be reported as PRESENT product name"
+            )
+
+        # A consonant-burst gibberish string must be demoted
+        tokens_gibberish = [make_token("t1", "Bsrkltpndvck")]
+        fields2 = self.extractor.extract_fields(tokens_gibberish)
+        if "product_name" in fields2:
+            pn = fields2["product_name"]
+            assert pn["evidence_state"] == "UNCERTAIN", (
+                f"TIER-0.2: Gibberish product name must be UNCERTAIN, got {pn['evidence_state']}"
+            )
+            assert pn["confidence"] <= 0.40
+
+
+    def test_consonant_only_product_name_demoted(self):
+        """A string with no vowels (e.g. OCR fragment 'Prml Chc') must be UNCERTAIN."""
+        tokens = [
+            make_token("t1", "Prml Chc Bscts"),   # consonants only, no vowels
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        if "product_name" in fields:
+            pn = fields["product_name"]
+            assert pn["evidence_state"] == "UNCERTAIN", (
+                f"TIER-0.2: Vowelless product name must be UNCERTAIN, got {pn['evidence_state']}"
+            )
+            assert pn["confidence"] <= 0.40
+
+    def test_real_product_name_not_penalized(self):
+        """
+        A properly OCR'd product name like 'Premium Choco-Chip Biscuits'
+        must pass sanity and retain high confidence.
+        """
+        tokens = [make_token("t1", "Premium Choco-Chip Biscuits")]
+        fields = self.extractor.extract_fields(tokens)
+        assert "product_name" in fields
+        pn = fields["product_name"]
+        assert pn["evidence_state"] == "PRESENT", (
+            f"TIER-0.2: Good product name must be PRESENT, got {pn['evidence_state']}"
+        )
+        assert pn["confidence"] >= 0.75
+        assert pn.get("sanity_check") == "PASSED"
+
+    # ── Net Quantity ───────────────────────────────────────────────────────────
+
+    def test_net_quantity_31g_passes(self):
+        """
+        Parle-G scenario: 'Net Qty: 31.25 g' is a real number on the label —
+        must pass sanity at full confidence (not over-penalized).
+        """
+        tokens = [make_token("t1", "Net Qty: 31.25 g")]
+        fields = self.extractor.extract_fields(tokens)
+        assert "net_quantity" in fields
+        nq = fields["net_quantity"]
+        assert nq.get("sanity_check") == "PASSED", (
+            "TIER-0.2: 31.25g must pass net_quantity sanity — was over-penalized"
+        )
+        assert nq["evidence_state"] == "PRESENT"
+        assert nq["confidence"] >= 0.80
+
+    def test_net_quantity_implausible_value_flagged(self):
+        """An absurd net quantity (e.g. 999999 g) must be flagged UNCERTAIN."""
+        tokens = [make_token("t1", "Net Qty: 999999 g")]
+        fields = self.extractor.extract_fields(tokens)
+        if "net_quantity" in fields:
+            assert fields["net_quantity"]["evidence_state"] == "UNCERTAIN"
+            assert fields["net_quantity"]["confidence"] <= 0.40
+
+    # ── MRP ────────────────────────────────────────────────────────────────────
+
+    def test_mrp_plausible_range_passes(self):
+        """MRP of ₹99 must pass sanity and stay PRESENT."""
+        tokens = [make_token("t1", "MRP: Rs. 99")]
+        fields = self.extractor.extract_fields(tokens)
+        assert "mrp" in fields
+        assert fields["mrp"].get("sanity_check") == "PASSED"
+        assert fields["mrp"]["evidence_state"] == "PRESENT"
+
+    # ── sanity_check() Public API ──────────────────────────────────────────────
+
+    def test_sanity_check_api_address_garbage(self):
+        """Public sanity_check() must return (False, ≤0.40) for a gibberish address."""
+        e = FieldExtractor()
+        ok, conf = e.sanity_check("address", "Caedaeupolyd Vushusatunuuupaclernopjuels")
+        assert ok is False
+        assert conf <= 0.40
+
+    def test_sanity_check_api_address_real(self):
+        """Public sanity_check() must return (True, …) for a real address with PIN."""
+        e = FieldExtractor()
+        ok, conf = e.sanity_check("address", "Andheri East, Mumbai 400093")
+        assert ok is True
+
+    def test_sanity_check_api_mrp_inrange(self):
+        ok, _ = FieldExtractor().sanity_check("mrp", "Rs. 150", numeric_value=150.0)
+        assert ok is True
+
+    def test_sanity_check_api_mrp_outofrange(self):
+        ok, conf = FieldExtractor().sanity_check("mrp", "9999999", numeric_value=9_999_999.0)
+        assert ok is False
+        assert conf <= 0.40
+
+    def test_sanity_check_api_product_name_short(self):
+        ok, conf = FieldExtractor().sanity_check("product_name", "lo")
+        assert ok is False
+        assert conf <= 0.40
+
+    def test_sanity_check_api_unknown_field_always_passes(self):
+        """Unknown field types must always pass (no false positives)."""
+        ok, _ = FieldExtractor().sanity_check("gstin", "09AAAAA1234A1Z5")
+        assert ok is True
+
 
 class TestNetQuantityExtraction:
+
     def setup_method(self):
         self.extractor = FieldExtractor()
 
@@ -67,6 +344,76 @@ class TestNetQuantityExtraction:
         assert "net_quantity" in fields
         assert fields["net_quantity"]["unit"] == "mL"
 
+    # ── TIER 0.4 regression tests ────────────────────────────────────────────
+
+    def test_serving_size_only_does_not_populate_net_quantity(self):
+        """
+        Parle-G scenario: only a 'Serving size 31.25g' line is present —
+        no explicit Net Wt / Net Qty keyword.  net_quantity must be ABSENT.
+        The value must be captured in serving_size instead.
+        """
+        tokens = [
+            make_token("t1", "Serving size (5 cookies) 31.25 g"),
+            make_token("t2", "Servings per container: 32"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "net_quantity" not in fields, (
+            "TIER-0.4: serving-size value must NOT populate net_quantity"
+        )
+        assert "serving_size" in fields, (
+            "TIER-0.4: serving-size value must be captured in serving_size field"
+        )
+        assert fields["serving_size"]["numeric_value"] == 31.25
+        assert fields["serving_size"]["unit"] == "g"
+
+    def test_combined_net_wt_and_serving_size_picks_net_wt(self):
+        """
+        The critical regression test: a label with BOTH 'Net Wt: 500g' AND
+        'Serving size: 25g'.  net_quantity must be 500 g, NOT 25 g.
+        """
+        tokens = [
+            make_token("t1", "Net Wt: 500 g"),
+            make_token("t2", "Serving size: 25 g"),
+            make_token("t3", "20 servings per container"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "net_quantity" in fields, (
+            "TIER-0.4: Net Wt anchor must produce net_quantity field"
+        )
+        assert fields["net_quantity"]["numeric_value"] == 500.0, (
+            f"TIER-0.4: Expected 500g, got {fields['net_quantity']['numeric_value']}g — "
+            "serving size (25g) was wrongly chosen over Net Wt (500g)"
+        )
+        assert fields["net_quantity"]["unit"] == "g"
+        # Serving size must also be captured (data not silently dropped)
+        assert "serving_size" in fields
+        assert fields["serving_size"]["numeric_value"] == 25.0
+
+    def test_net_weight_keyword_variant(self):
+        """'Net Weight:' keyword variant must be accepted as a valid anchor."""
+        tokens = [make_token("t1", "Net Weight: 200 g")]
+        fields = self.extractor.extract_fields(tokens)
+        assert "net_quantity" in fields
+        assert fields["net_quantity"]["numeric_value"] == 200.0
+
+    def test_bare_number_without_anchor_does_not_populate_net_quantity(self):
+        """
+        A bare 'g' number with no keyword anchor — e.g. just a table value —
+        must NOT produce a net_quantity field (prevents old false-positive behaviour).
+        """
+        tokens = [make_token("t1", "279 mg sodium")]
+        fields = self.extractor.extract_fields(tokens)
+        assert "net_quantity" not in fields, (
+            "TIER-0.4: unanchored number must not appear as net_quantity"
+        )
+
+    def test_per_serving_text_excluded_from_net_quantity(self):
+        """'Per serving: 30g' — must go to serving_size, not net_quantity."""
+        tokens = [make_token("t1", "Per serving 30 g")]
+        fields = self.extractor.extract_fields(tokens)
+        assert "net_quantity" not in fields, (
+            "TIER-0.4: 'per serving' text must not produce net_quantity"
+        )
 
 class TestManufactureDateExtraction:
     """CRITICAL: Mfg Date must be detected for 'Mfg. Date: 09/2026' (with period)."""

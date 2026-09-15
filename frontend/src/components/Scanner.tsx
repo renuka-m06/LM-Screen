@@ -638,6 +638,7 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             imageSrc={previewUrl}
             ocrTokens={scanResult.ocr_tokens}
             extractedFields={scanResult.extracted_fields}
+            imageHash={scanResult.image_hash}
           />
         </div>
       )}

@@ -67,6 +67,22 @@ class DeterministicRuleEngine:
         
         for rule in rules:
             rule_id = rule["rule_id"]
+            if rule_id in ("LM003", "LM008"):
+                print(f"\\n--- DEBUG {rule_id} INPUT ---")
+                if rule_id == "LM003":
+                    print(json.dumps({
+                        "manufacture_date": extracted_fields.get("manufacture_date"),
+                        "packing_date": extracted_fields.get("packing_date"),
+                        "import_date": extracted_fields.get("import_date")
+                    }, indent=2))
+                elif rule_id == "LM008":
+                    print(json.dumps({
+                        "mrp": extracted_fields.get("mrp"),
+                        "net_quantity": extracted_fields.get("net_quantity"),
+                        "unit_sale_price": extracted_fields.get("unit_sale_price")
+                    }, indent=2))
+                print("---------------------------")
+
             req_fields = rule.get("required_fields", [])
             require_any = rule.get("require_any", False)
             applies_when = rule.get("applies_when", {})
@@ -104,6 +120,242 @@ class DeterministicRuleEngine:
                 elif field_key in extracted_fields:
                     present_fields.append(field_key)
                     evidence_ids.extend(extracted_fields[field_key].get("ocr_evidence_ids", []))
+
+            if rule_id == "LM007":
+                scale = context.get("scale_mm_per_pixel")
+                pdp_box = context.get("pdp_crop_box")
+                if not scale or not pdp_box:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": "Physical scale or panel area could not be determined. Cannot measure font heights."
+                    })
+                    continue
+                
+                pdp_area_cm2 = ((pdp_box[2] * scale) * (pdp_box[3] * scale)) / 100.0
+                
+                min_height_mm = 1.0
+                if pdp_area_cm2 > 2500: min_height_mm = 6.0
+                elif pdp_area_cm2 > 500: min_height_mm = 4.0
+                elif pdp_area_cm2 > 100: min_height_mm = 2.5
+                elif pdp_area_cm2 > 50: min_height_mm = 1.5
+                
+                fails = []
+                for field_key in req_fields:
+                    if field_key in extracted_fields:
+                        measured = extracted_fields[field_key].get("font_height_mm")
+                        if measured is not None and measured < min_height_mm:
+                            fails.append(f"{field_key} ({measured}mm < {min_height_mm}mm)")
+                
+                if fails:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "POTENTIAL_NON_COMPLIANCE",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids,
+                        "reason": f"Measured numerals fail Schedule II minimums (PDP Area {pdp_area_cm2:.1f} cm² requires ≥ {min_height_mm}mm): {', '.join(fails)}"
+                    })
+                else:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "PASS",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids,
+                        "reason": f"Measured numerals meet Schedule II minimums (PDP Area {pdp_area_cm2:.1f} cm² requires ≥ {min_height_mm}mm)."
+                    })
+                continue
+
+            if rule_id == "LM008":
+                mrp_field = extracted_fields.get("mrp")
+                qty_field = extracted_fields.get("net_quantity")
+                usp_field = extracted_fields.get("unit_sale_price")
+                
+                if not mrp_field or not qty_field:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": "cannot verify — required fields missing"
+                    })
+                    continue
+
+                if mrp_field.get("evidence_state") == "UNCERTAIN" or qty_field.get("evidence_state") == "UNCERTAIN":
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": "cannot verify — MRP or Net Quantity is uncertain"
+                    })
+                    continue
+
+                mrp_val = mrp_field.get("numeric_value")
+                qty_val = qty_field.get("numeric_value")
+                qty_unit = qty_field.get("unit", "").lower()
+
+                if mrp_val is None or qty_val is None or not qty_unit:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": "cannot verify — numeric values missing"
+                    })
+                    continue
+
+                # Normalize qty based on Rule 6(11) magnitude thresholds
+                norm_qty_val = qty_val
+                base_unit = qty_unit
+                if qty_unit == "g" and qty_val >= 1000:
+                    norm_qty_val = qty_val / 1000.0
+                    base_unit = "kg"
+                elif qty_unit == "kg" and qty_val < 1:
+                    norm_qty_val = qty_val * 1000.0
+                    base_unit = "g"
+                elif qty_unit == "ml" and qty_val >= 1000:
+                    norm_qty_val = qty_val / 1000.0
+                    base_unit = "L"
+                elif qty_unit in ["l", "litre", "liters"] and qty_val < 1:
+                    norm_qty_val = qty_val * 1000.0
+                    base_unit = "mL"
+                
+                # Special normalisation for unit matching (L vs mL)
+                if base_unit.lower() == "l": base_unit = "L"
+                if base_unit.lower() == "ml": base_unit = "mL"
+
+                expected_usp = round(mrp_val / norm_qty_val, 2)
+                
+                if not usp_field:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.50,
+                        "evidence_ids": evidence_ids,
+                        "reason": f"Unit Sale Price declaration missing (Expected: Rs {expected_usp}/{base_unit}). Needs manual review to confirm if rule is applicable or if OCR failed to extract it."
+                    })
+                    continue
+
+                printed_usp = usp_field.get("numeric_value")
+                printed_unit = usp_field.get("unit")
+                
+                if printed_unit.lower() != base_unit.lower():
+                    # Handle mismatch in unit printed vs expected base unit
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "POTENTIAL_NON_COMPLIANCE",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids + usp_field.get("ocr_evidence_ids", []),
+                        "reason": f"USP unit mismatch (Printed: {printed_unit} | Expected base: {base_unit})"
+                    })
+                    continue
+
+                diff = abs(expected_usp - printed_usp)
+                tol = max(0.05, 0.02 * expected_usp)
+                
+                if diff > tol:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "POTENTIAL_NON_COMPLIANCE",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids + usp_field.get("ocr_evidence_ids", []),
+                        "reason": f"USP arithmetic mismatch (Printed USP: Rs {printed_usp}/{printed_unit} | Expected: Rs {expected_usp}/{base_unit})"
+                    })
+                else:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "PASS",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids + usp_field.get("ocr_evidence_ids", []),
+                        "reason": f"USP verified (Printed USP: Rs {printed_usp}/{printed_unit} matches Expected: Rs {expected_usp}/{base_unit})"
+                    })
+                continue
+
+            if rule_id == "LM009":
+                qty_field = extracted_fields.get("net_quantity")
+                if not qty_field:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": "cannot verify — required field (net_quantity) missing"
+                    })
+                    continue
+                
+                raw_unit = qty_field.get("raw_unit", "")
+                raw_unit_lower = raw_unit.lower()
+                
+                correct = None
+                if raw_unit_lower in ["gms", "grms", "gm"]:
+                    correct = "g"
+                elif raw_unit_lower in ["kilos", "kgs"]:
+                    correct = "kg"
+                elif raw_unit_lower in ["ltrs", "lts", "liters", "litres"]:
+                    correct = "L"
+                elif raw_unit_lower in ["mts", "mtrs"]:
+                    correct = "m"
+                elif raw_unit == "ML":
+                    correct = "mL"
+                
+                if correct:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "POTENTIAL_NON_COMPLIANCE",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids + qty_field.get("ocr_evidence_ids", []),
+                        "reason": f"Non-standard unit abbreviation used (found '{raw_unit}', should be '{correct}')"
+                    })
+                else:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "PASS",
+                        "applicable": True,
+                        "confidence": 0.90,
+                        "evidence_ids": evidence_ids + qty_field.get("ocr_evidence_ids", []),
+                        "reason": f"Standard unit abbreviation used ('{raw_unit}')"
+                    })
+                continue
 
             if quality_status.get("status") == "RETAKE_REQUIRED":
                 # Insufficient image quality forces NEEDS_REVIEW on rules

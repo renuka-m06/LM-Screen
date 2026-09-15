@@ -78,6 +78,7 @@ export interface ScanResult {
   decision_trace: DecisionTraceStep[];
   processing_time_ms?: number;
   ocr_token_count?: number;
+  image_hash?: string;
   disclaimer: string;
 }
 

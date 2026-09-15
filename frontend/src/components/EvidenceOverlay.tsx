@@ -6,9 +6,10 @@ interface EvidenceOverlayProps {
   imageSrc: string;
   ocrTokens: OCRToken[];
   extractedFields: Record<string, ExtractedField>;
+  imageHash?: string;
 }
 
-export const EvidenceOverlay: React.FC<EvidenceOverlayProps> = ({ imageSrc, ocrTokens, extractedFields }) => {
+export const EvidenceOverlay: React.FC<EvidenceOverlayProps> = ({ imageSrc, ocrTokens, extractedFields, imageHash }) => {
   const [selectedToken, setSelectedToken] = useState<OCRToken | null>(null);
 
   return (
@@ -61,6 +62,15 @@ export const EvidenceOverlay: React.FC<EvidenceOverlayProps> = ({ imageSrc, ocrT
         <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
           <Eye size={18} color="var(--color-primary)" /> Evidence Provenance
         </h3>
+
+        {imageHash && (
+          <div style={{ marginBottom: '16px', padding: '10px 12px', borderRadius: '8px', background: 'var(--color-subtle-bg)', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>SHA-256 Digital Fingerprint</div>
+            <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+              {imageHash}
+            </div>
+          </div>
+        )}
 
         {/* Tab Header */}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>

@@ -275,14 +275,30 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
               </div>
             )}
 
-            <button
-              onClick={handleReviewSubmit}
-              disabled={submittingReview}
-              className="btn-primary"
-              style={{ padding: '10px 20px', fontSize: '0.88rem' }}
-            >
-              <Send size={15} /> {submittingReview ? 'Persisting Action...' : 'Persist Officer Action'}
-            </button>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <button
+                onClick={handleReviewSubmit}
+                disabled={submittingReview}
+                className="btn-primary"
+                style={{ padding: '10px 20px', fontSize: '0.88rem' }}
+              >
+                <Send size={15} /> {submittingReview ? 'Persisting Action...' : 'Persist Officer Action'}
+              </button>
+
+              {scanId && (
+                <button
+                  onClick={() => {
+                    import('../api').then(({ generateNoticeUrl }) => {
+                      window.open(generateNoticeUrl(scanId), '_blank');
+                    });
+                  }}
+                  className="btn-secondary"
+                  style={{ padding: '10px 20px', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <FileText size={15} /> Generate Sec 15 Notice
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

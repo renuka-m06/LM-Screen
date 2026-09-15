@@ -58,6 +58,10 @@ export async function getScanResult(scanId: string): Promise<ScanResult> {
   return response.json();
 }
 
+export function generateNoticeUrl(scanId: string): string {
+  return `${API_BASE_URL}/scans/${scanId}/notice`;
+}
+
 export async function submitOfficerReview(
   payloadOrClusterId: string | { scan_id?: string; cluster_id?: string; product_id?: string; decision: string; rationale: string },
   decisionOrUserRole?: string,

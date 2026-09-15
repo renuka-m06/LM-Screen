@@ -72,6 +72,7 @@ class ScanResponse(BaseModel):
     decision_trace: List[Dict[str, Any]] = []
     processing_time_ms: Optional[float] = None
     ocr_token_count: Optional[int] = None
+    image_hash: Optional[str] = None
     disclaimer: str
 
 # Citizen Report Schemas

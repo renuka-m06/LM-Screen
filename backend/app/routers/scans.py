@@ -111,28 +111,34 @@ async def process_scan(
         "detail": f"Revised quality after OCR feedback: {q_result.get('status')}"
     })
 
-    # ── Step 5: Field Extraction ───────────────────────────────────────────────
-    extracted_fields = field_extractor.extract_fields(ocr_tokens)
+    # ── Step 5: Barcode Detection ──────────────────────────────────────────────
+    barcode_status = barcode_engine.decode_and_validate(image_np)
+    decision_trace.append({
+        "stage": "BARCODE",
+        "status": barcode_status.get("status", "BARCODE_NOT_FOUND"),
+        "detail": f"GTIN={barcode_status.get('gtin', 'N/A')} | {barcode_status.get('reasons', [''])[0]}"
+    })
+
+    # ── Step 6: Field Extraction ───────────────────────────────────────────────
+    scale = barcode_status.get("scale_mm_per_pixel")
+    extracted_fields = field_extractor.extract_fields(ocr_tokens, scale_mm_per_pixel=scale)
     decision_trace.append({
         "stage": "FIELD_EXTRACTION",
         "status": "OK",
         "detail": f"Fields extracted: {', '.join(extracted_fields.keys()) or 'none'}"
     })
 
-    # ── Step 6: Context Classification ────────────────────────────────────────
+    # ── Step 7: Context Classification ────────────────────────────────────────
     context = context_classifier.classify_context(ocr_tokens)
+    # Augment context with physical measurement data for rule engine (LM007)
+    context["scale_mm_per_pixel"] = scale
+    if panel_result.get("detected"):
+        context["pdp_crop_box"] = panel_result.get("crop_box")
+        
     decision_trace.append({
         "stage": "CONTEXT_CLASSIFICATION",
         "status": "OK",
         "detail": f"Category: {context.get('product_category')} | Origin: {context.get('origin')} | Confidence: {context.get('context_confidence')}"
-    })
-
-    # ── Step 7: Barcode Detection ──────────────────────────────────────────────
-    barcode_status = barcode_engine.decode_and_validate(image_np)
-    decision_trace.append({
-        "stage": "BARCODE",
-        "status": barcode_status.get("status", "BARCODE_NOT_FOUND"),
-        "detail": f"GTIN={barcode_status.get('gtin', 'N/A')} | {barcode_status.get('reasons', [''])[0]}"
     })
 
     # ── Step 8: Identity Consistency Check ────────────────────────────────────
@@ -612,7 +618,30 @@ def get_scan(scan_id: str, db: Session = Depends(get_db)):
         review_reasons=[w["explanation"] for w in identity_warnings] if identity_warnings else [],
         identity_warnings=identity_warnings,
         decision_trace=traces,
+        image_hash=scan.image_hash,
         disclaimer=VerdictAggregator.MANDATORY_DISCLAIMER
     )
 
+from fastapi.responses import Response
+from backend.app.services.pdf_generator import generate_notice_pdf
 
+@router.get("/{scan_id}/notice")
+async def get_scan_notice(
+    scan_id: str,
+    db: Session = Depends(get_db)
+):
+    try:
+        # Mock inspector name since we don't have auth currently wired
+        inspector_name = "Inspector User (ID: 942)"
+        pdf_bytes = generate_notice_pdf(scan_id, db, inspector_name)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="Notice_Section15_{scan_id}.pdf"'
+            }
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
