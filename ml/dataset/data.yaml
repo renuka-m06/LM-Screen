@@ -1,0 +1,14 @@
+train: ./images/train
+val: ./images/val
+test: ./images/test
+
+nc: 8
+names:
+  0: package
+  1: front_panel
+  2: back_panel
+  3: nutrition_panel
+  4: ingredients_panel
+  5: barcode
+  6: declaration_label
+  7: warning_area
