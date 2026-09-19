@@ -62,22 +62,24 @@ export interface ImageQuality {
 }
 
 export interface ScanResult {
-  scan_id: string;
+  screening_id: string;
   product_id?: string;
   status: 'PASS_SCREENING' | 'POTENTIAL_NON_COMPLIANCE' | 'NEEDS_REVIEW';
   public_label: string;
   screening_confidence: number;
-  quality: ImageQuality;
-  ocr_tokens: OCRToken[];
-  extracted_fields: Record<string, ExtractedField>;
-  checks_performed: RuleCheck[];
-  checks_not_performed: Array<Record<string, unknown>>;
-  rule_version: string;
-  review_reasons: string[];
-  identity_warnings: IdentityWarning[];
+  image_quality: ImageQuality;
+  detections: any[];
+  ocr: OCRToken[];
+  barcode: any;
+  product_context: any;
+  evidence: any[];
+  rule_results: RuleCheck[];
+  review_factors: any[];
   decision_trace: DecisionTraceStep[];
+  
+  // Legacy
+  rule_version: string;
   processing_time_ms?: number;
-  ocr_token_count?: number;
   image_hash?: string;
   disclaimer: string;
 }

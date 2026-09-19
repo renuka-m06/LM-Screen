@@ -56,24 +56,26 @@ class DecisionTraceStepSchema(BaseModel):
     detail: Optional[str] = None
 
 class ScanResponse(BaseModel):
-    scan_id: str
+    screening_id: str
     product_id: Optional[str] = None
     status: str
+    image_quality: Dict[str, Any]
+    detections: List[Dict[str, Any]] = []
+    ocr: List[Dict[str, Any]] = []
+    barcode: Dict[str, Any] = {}
+    product_context: Dict[str, Any] = {}
+    evidence: List[Dict[str, Any]] = []
+    rule_results: List[Dict[str, Any]] = []
+    review_factors: List[Dict[str, Any]] = []
+    decision_trace: List[Dict[str, Any]] = []
+    
+    # Legacy fields to avoid immediate breakage if strictly needed by frontend
     public_label: str
     screening_confidence: float
-    quality: Dict[str, Any]
-    ocr_tokens: List[OCRTokenSchema] = []
-    extracted_fields: Dict[str, Any] = {}
-    checks_performed: List[RuleCheckSchema] = []
-    checks_not_performed: List[Dict[str, Any]] = []
-    rule_version: str = "2026.1"
-    review_reasons: List[str] = []
-    identity_warnings: List[Dict[str, Any]] = []
-    decision_trace: List[Dict[str, Any]] = []
-    processing_time_ms: Optional[float] = None
-    ocr_token_count: Optional[int] = None
-    image_hash: Optional[str] = None
     disclaimer: str
+    rule_version: str = "2026.1"
+    image_hash: Optional[str] = None
+    processing_time_ms: Optional[float] = None
 
 # Citizen Report Schemas
 class ReportCreate(BaseModel):

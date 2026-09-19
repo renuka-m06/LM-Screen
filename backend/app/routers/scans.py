@@ -13,27 +13,13 @@ from backend.app.config import settings
 from backend.app.models.models import Scan, OCRResult, ExtractedField, RuleResult, DecisionTrace, Product
 from backend.app.schemas.schemas import ScanResponse
 
-from ai.quality import ImageQualityGate
-from ai.detection import PackageDetector
-from ai.ocr_engine import OCREngine
-from ai.field_extractor import FieldExtractor
-from ai.context_classifier import ContextClassifier
-from ai.barcode_engine import BarcodeEngine
+from backend.app.services.ml.screening_service import ScreeningService
 from ai.consistency import ConsistencyScreening
-from rules.engine import DeterministicRuleEngine
-from rules.verdict import VerdictAggregator
 
 router = APIRouter(prefix="/scans", tags=["Scans"])
 
-quality_gate = ImageQualityGate()
-panel_detector = PackageDetector()
-ocr_engine = OCREngine()
-field_extractor = FieldExtractor()
-context_classifier = ContextClassifier()
-barcode_engine = BarcodeEngine()
+screening_service = ScreeningService()
 consistency = ConsistencyScreening()
-rule_engine = DeterministicRuleEngine()
-verdict_aggregator = VerdictAggregator()
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -83,69 +69,30 @@ async def process_scan(
     with open(filepath, "wb") as f:
         f.write(contents)
 
-    # ── Step 2: Image Quality Gate ─────────────────────────────────────────────
-    q_result = quality_gate.assess_quality(image_np)
-    decision_trace.append({
-        "stage": "IMAGE_QUALITY",
-        "status": q_result.get("status", "UNKNOWN"),
-        "detail": q_result.get("quality_label", "") + f" | blur={q_result.get('blur_score', 0):.1f} brightness={q_result.get('brightness_score', 0):.1f}"
-    })
+    # ── Step 2: Screening Service Pipeline ─────────────────────────────────────
+    user_hints = {"product_name": product_name, "gtin": gtin}
+    pipeline_result = screening_service.process_image(image_np, user_hints)
+    
+    q_result = pipeline_result["image_quality"]
+    panel_result = pipeline_result["detections"][0] if pipeline_result["detections"] else {}
+    ocr_tokens = pipeline_result["ocr"]
+    barcode_status = pipeline_result["barcode"]
+    evidence_list = pipeline_result["evidence"]
+    context = pipeline_result["product_context"]
+    rule_traces = pipeline_result["rule_results"]
+    verdict = pipeline_result["verdict"]
+    duration_ms = pipeline_result["processing_time_ms"]
+    
+    # Merge pipeline traces with the existing decision_trace
+    decision_trace.extend(pipeline_result["decision_trace"])
+    
+    # Map back to old extracted_fields format for DB save compatibility temporarily
+    extracted_fields = {e["field"]: {"field_name": e["field"], "raw_value": e["source"]["raw_text"], "normalized_value": e["value"], "confidence": e["confidence"], "extraction_method": e["method"], "evidence_state": "PRESENT" if e["found"] else "ABSENT_FROM_EVIDENCE"} for e in evidence_list}
 
-    # ── Step 3: Panel Detection ────────────────────────────────────────────────
-    panel_result = panel_detector.detect_panel(image_np)
-    decision_trace.append({"stage": "PANEL_DETECTION", "status": "OK", "detail": str(panel_result)})
-
-    # ── Step 4: OCR Token Extraction ───────────────────────────────────────────
-    ocr_tokens = ocr_engine.extract_tokens(image_np)
-    decision_trace.append({
-        "stage": "OCR",
-        "status": "OK" if ocr_tokens else "NO_TOKENS",
-        "detail": f"{len(ocr_tokens)} tokens detected"
-    })
-
-    # ── Step 4b: OCR-informed quality refinement ───────────────────────────────
-    q_result = quality_gate.upgrade_with_ocr(q_result, ocr_tokens)
-    decision_trace.append({
-        "stage": "QUALITY_REFINEMENT",
-        "status": q_result.get("status", "UNKNOWN"),
-        "detail": f"Revised quality after OCR feedback: {q_result.get('status')}"
-    })
-
-    # ── Step 5: Barcode Detection ──────────────────────────────────────────────
-    barcode_status = barcode_engine.decode_and_validate(image_np)
-    decision_trace.append({
-        "stage": "BARCODE",
-        "status": barcode_status.get("status", "BARCODE_NOT_FOUND"),
-        "detail": f"GTIN={barcode_status.get('gtin', 'N/A')} | {barcode_status.get('reasons', [''])[0]}"
-    })
-
-    # ── Step 6: Field Extraction ───────────────────────────────────────────────
-    scale = barcode_status.get("scale_mm_per_pixel")
-    extracted_fields = field_extractor.extract_fields(ocr_tokens, scale_mm_per_pixel=scale)
-    decision_trace.append({
-        "stage": "FIELD_EXTRACTION",
-        "status": "OK",
-        "detail": f"Fields extracted: {', '.join(extracted_fields.keys()) or 'none'}"
-    })
-
-    # ── Step 7: Context Classification ────────────────────────────────────────
-    context = context_classifier.classify_context(ocr_tokens)
-    # Augment context with physical measurement data for rule engine (LM007)
-    context["scale_mm_per_pixel"] = scale
-    if panel_result.get("detected"):
-        context["pdp_crop_box"] = panel_result.get("crop_box")
-        
-    decision_trace.append({
-        "stage": "CONTEXT_CLASSIFICATION",
-        "status": "OK",
-        "detail": f"Category: {context.get('product_category')} | Origin: {context.get('origin')} | Confidence: {context.get('context_confidence')}"
-    })
-
-    # ── Step 8: Identity Consistency Check ────────────────────────────────────
-    # IMAGE IS PRIMARY EVIDENCE — user input is metadata/hint only
+    # ── Step 3: Identity Consistency Check ────────────────────────────────────
     ocr_product_name = extracted_fields.get("product_name", {}).get("normalized_value") if "product_name" in extracted_fields else None
     ocr_gtin = extracted_fields.get("gtin", {}).get("normalized_value") if "gtin" in extracted_fields else None
-    barcode_gtin = barcode_status.get("gtin")
+    barcode_gtin = barcode_status.get("value")
 
     identity_check = consistency.check_identity_consistency(
         user_product_name=product_name,
@@ -163,31 +110,12 @@ async def process_scan(
         "detail": f"{len(identity_warnings)} warning(s): {'; '.join(w['type'] for w in identity_warnings)}" if identity_warnings else "No identity conflicts detected"
     })
 
-    # ── Step 9: Rule Engine Evaluation ────────────────────────────────────────
-    rule_traces = rule_engine.evaluate(extracted_fields, context, q_result)
-    decision_trace.append({
-        "stage": "RULE_EVALUATION",
-        "status": "OK",
-        "detail": f"{len(rule_traces)} rules evaluated | " + " | ".join(f"{r['rule_id']}:{r['status']}" for r in rule_traces if r.get('applicable', True))
-    })
-
-    # ── Step 10: Verdict Aggregation ──────────────────────────────────────────
-    verdict = verdict_aggregator.aggregate(rule_traces, q_result, barcode_status, context, identity_warnings)
-    decision_trace.append({
-        "stage": "VERDICT",
-        "status": verdict.get("status"),
-        "detail": f"Confidence: {verdict.get('screening_confidence')} | {verdict.get('public_label')}"
-    })
-
-    duration_ms = (time.time() - start_time) * 1000
-
     print(
         f"[Pipeline] Scan: {filename} | "
-        f"Quality: {q_result.get('status')} ({q_result.get('quality_label')}) | "
+        f"Quality: {q_result.get('usable')} | "
         f"Tokens: {len(ocr_tokens)} | "
         f"Fields: {list(extracted_fields.keys())} | "
-        f"IdentityWarnings: {len(identity_warnings)} | "
-        f"Category: {context.get('product_category')} | "
+        f"Category: {context.get('category')} | "
         f"Verdict: {verdict.get('status')} ({verdict.get('screening_confidence')})"
     )
 
@@ -201,103 +129,109 @@ async def process_scan(
     if not db_product and product_name:
         db_product = db.query(Product).filter(Product.product_name == product_name).first()
 
-    if not db_product and (lookup_gtin or product_name):
-        # Create product record using image evidence first, then user hint as fallback
-        image_name = ocr_product_name or product_name or "Scanned Commodity"
-        db_product = Product(
-            gtin=lookup_gtin,
-            product_name=image_name,
-            category=context.get("product_category", "general")
-        )
-        db.add(db_product)
-        db.commit()
-        db.refresh(db_product)
-
-    scan_db = Scan(
-        product_id=db_product.id if db_product else None,
-        image_hash=image_hash,
-        image_path=filepath,
-        quality_status=q_result["status"],
-        blur_score=q_result["blur_score"],
-        brightness_score=q_result["brightness_score"],
-        glare_ratio=q_result["glare_ratio"],
-        status=verdict["status"],
-        public_label=verdict["public_label"],
-        screening_confidence=verdict["screening_confidence"],
-        rule_version=verdict["rule_version"]
-    )
-    db.add(scan_db)
-    db.commit()
-    db.refresh(scan_db)
-
-    # Save OCR Tokens
-    for tok in ocr_tokens:
-        db_ocr = OCRResult(
-            scan_id=scan_db.id,
-            token_id=tok["id"],
-            text=tok["text"],
-            polygon=tok["polygon"],
-            confidence=tok["confidence"],
-            language=tok.get("language", "en")
-        )
-        db.add(db_ocr)
-
-    # Save Extracted Fields
-    for f_key, f_val in extracted_fields.items():
-        db_field = ExtractedField(
-            scan_id=scan_db.id,
-            field_name=f_val["field_name"],
-            raw_value=f_val["raw_value"],
-            normalized_value=f_val["normalized_value"],
-            confidence=f_val["confidence"],
-            ocr_evidence_ids=f_val.get("ocr_evidence_ids", []),
-            extraction_method=f_val["extraction_method"]
-        )
-        db.add(db_field)
-
-    # Save Rule Results
-    for trace in rule_traces:
-        if trace.get("applicable", True):
-            db_rule = RuleResult(
-                scan_id=scan_db.id,
-                rule_id=trace["rule_id"],
-                rule_name=trace.get("rule_name", trace["rule_id"]),
-                status=trace["status"],
-                confidence=trace["confidence"],
-                reason=trace["reason"]
+    try:
+        if not db_product and (lookup_gtin or product_name):
+            # Create product record using image evidence first, then user hint as fallback
+            image_name = ocr_product_name or product_name or "Scanned Commodity"
+            db_product = Product(
+                gtin=lookup_gtin,
+                product_name=image_name,
+                category=context.get("product_category", "general")
             )
-            db.add(db_rule)
+            db.add(db_product)
+            db.flush()
 
-    db.commit()
+        raw_q = q_result.get("raw_metrics", {})
+        scan_db = Scan(
+            product_id=db_product.id if db_product else None,
+            image_hash=image_hash,
+            image_path=filepath,
+            quality_status=raw_q.get("status", "UNKNOWN"),
+            blur_score=raw_q.get("blur_score", 0.0),
+            brightness_score=raw_q.get("brightness_score", 0.0),
+            glare_ratio=raw_q.get("glare_ratio", 0.0),
+            status=verdict["status"],
+            public_label=verdict["public_label"],
+            screening_confidence=verdict["screening_confidence"],
+            rule_version=verdict["rule_version"]
+        )
+        db.add(scan_db)
+        db.flush()
 
-    # Save Decision Trace
-    db_trace = DecisionTrace(
-        scan_id=scan_db.id,
-        stage="pipeline_complete",
-        duration_ms=duration_ms,
-        output_summary={"verdict": verdict["status"], "confidence": verdict["screening_confidence"]}
-    )
-    db.add(db_trace)
-    db.commit()
+        # Save OCR Tokens
+        for tok in ocr_tokens:
+            db_ocr = OCRResult(
+                scan_id=scan_db.id,
+                token_id=tok["id"],
+                text=tok["text"],
+                polygon=tok["polygon"],
+                confidence=tok["confidence"],
+                language=tok.get("language", "en")
+            )
+            db.add(db_ocr)
+
+        # Save Extracted Fields
+        for f_key, f_val in extracted_fields.items():
+            db_field = ExtractedField(
+                scan_id=scan_db.id,
+                field_name=f_val["field_name"],
+                raw_value=f_val["raw_value"],
+                normalized_value=f_val["normalized_value"],
+                confidence=f_val["confidence"],
+                ocr_evidence_ids=f_val.get("ocr_evidence_ids", []),
+                extraction_method=f_val["extraction_method"]
+            )
+            db.add(db_field)
+
+        # Save Rule Results
+        for trace in rule_traces:
+            if trace.get("applicable", True):
+                db_rule = RuleResult(
+                    scan_id=scan_db.id,
+                    rule_id=trace["rule_id"],
+                    rule_name=trace.get("rule_name", trace["rule_id"]),
+                    status=trace["status"],
+                    confidence=trace["confidence"],
+                    reason=trace["reason"]
+                )
+                db.add(db_rule)
+
+        # Save Decision Trace
+        db_trace = DecisionTrace(
+            scan_id=scan_db.id,
+            stage="pipeline_complete",
+            duration_ms=duration_ms,
+            output_summary={"verdict": verdict["status"], "confidence": verdict["screening_confidence"]}
+        )
+        db.add(db_trace)
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database transaction failed: {str(e)}")
 
     return ScanResponse(
-        scan_id=scan_db.id,
+        screening_id=scan_db.id,
         product_id=db_product.id if db_product else None,
         status=verdict["status"],
+        image_quality=q_result,
+        detections=[panel_result] if panel_result.get("detected") else [],
+        ocr=ocr_tokens,
+        barcode=barcode_status,
+        product_context=context,
+        evidence=evidence_list,
+        rule_results=verdict.get("checks_performed", []),
+        review_factors=[{"reason": r} for r in verdict.get("review_reasons", [])] + identity_warnings,
+        decision_trace=decision_trace,
+        
+        # Legacy
         public_label=verdict["public_label"],
         screening_confidence=verdict["screening_confidence"],
-        quality=q_result,
-        ocr_tokens=ocr_tokens,
-        extracted_fields=extracted_fields,
-        checks_performed=verdict["checks_performed"],
-        checks_not_performed=verdict["checks_not_performed"],
+        disclaimer=verdict["disclaimer"],
         rule_version=verdict["rule_version"],
-        review_reasons=verdict["review_reasons"],
-        identity_warnings=identity_warnings,
-        decision_trace=decision_trace,
-        processing_time_ms=round(duration_ms, 1),
-        ocr_token_count=len(ocr_tokens),
-        disclaimer=verdict["disclaimer"]
+        image_hash=image_hash,
+        processing_time_ms=round(duration_ms, 1)
     )
 
 
@@ -549,7 +483,7 @@ def get_scan(scan_id: str, db: Session = Depends(get_db)):
             "polygon": tok.polygon,
             "confidence": tok.confidence,
             "language": tok.language,
-            "model_version": tok.model_version
+            "model_version": tok.ocr_version
         }
         for tok in scan.ocr_results
     ]
@@ -598,28 +532,49 @@ def get_scan(scan_id: str, db: Session = Depends(get_db)):
         })
 
     from rules.verdict import VerdictAggregator
+    evidence_list = [
+        {
+            "field": f["field_name"],
+            "value": f["normalized_value"],
+            "found": True,
+            "confidence": f["confidence"],
+            "source": {
+                "type": "OCR",
+                "panel": "declaration_label",
+                "bbox": [],
+                "raw_text": f["raw_value"]
+            },
+            "method": f["extraction_method"]
+        }
+        for f in extracted_fields.values()
+    ]
+
     return ScanResponse(
-        scan_id=scan.id,
+        screening_id=scan.id,
         product_id=scan.product_id,
         status=scan.status,
-        public_label=scan.public_label,
-        screening_confidence=scan.screening_confidence,
-        quality={
+        image_quality={
             "status": scan.quality_status,
             "blur_score": scan.blur_score,
             "brightness_score": scan.brightness_score,
             "glare_ratio": scan.glare_ratio
         },
-        ocr_tokens=ocr_tokens,
-        extracted_fields=extracted_fields,
-        checks_performed=checks_performed,
-        checks_not_performed=[],
-        rule_version=scan.rule_version,
-        review_reasons=[w["explanation"] for w in identity_warnings] if identity_warnings else [],
-        identity_warnings=identity_warnings,
+        detections=[],
+        ocr=ocr_tokens,
+        barcode={},
+        product_context={},
+        evidence=evidence_list,
+        rule_results=checks_performed,
+        review_factors=[{"reason": w["explanation"]} for w in identity_warnings],
         decision_trace=traces,
+        
+        # Legacy
+        public_label=scan.public_label,
+        screening_confidence=scan.screening_confidence,
+        disclaimer=VerdictAggregator.MANDATORY_DISCLAIMER,
+        rule_version=scan.rule_version,
         image_hash=scan.image_hash,
-        disclaimer=VerdictAggregator.MANDATORY_DISCLAIMER
+        processing_time_ms=0.0
     )
 
 from fastapi.responses import Response

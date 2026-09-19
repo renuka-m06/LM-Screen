@@ -45,10 +45,10 @@ def test_officer_review_all_actions_and_audit_persistence():
     )
     assert scan_resp.status_code == 200
     scan_data = scan_resp.json()
-    scan_id = scan_data["scan_id"]
+    scan_id = scan_data["screening_id"]
     product_id = scan_data["product_id"]
     assert scan_data["status"] == "NEEDS_REVIEW"
-    assert len(scan_data["identity_warnings"]) > 0
+    assert len(scan_data["review_factors"]) > 0
 
     # 3. Test Action 1: MARK_UNDER_INVESTIGATION
     res1 = client.post(
