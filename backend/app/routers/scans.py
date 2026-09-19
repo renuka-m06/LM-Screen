@@ -10,7 +10,11 @@ from typing import Optional
 
 from backend.app.database import get_db
 from backend.app.config import settings
-from backend.app.models.models import Scan, OCRResult, ExtractedField, RuleResult, DecisionTrace, Product
+from backend.app.models.models import (
+    Scan, OCRResult, ExtractedField, RuleResult, DecisionTrace, Product,
+    ProductImage, ImageQuality, Detection, ProductClassification,
+    RuleResultEvidence, ReviewFactor
+)
 from backend.app.schemas.schemas import ScanResponse
 
 from backend.app.services.ml.screening_service import ScreeningService
@@ -141,69 +145,177 @@ async def process_scan(
             db.add(db_product)
             db.flush()
 
+        # 1. Product Image
+        db_image = ProductImage(
+            product_id=db_product.id if db_product else None,
+            file_path=filepath,
+            original_filename=file.filename,
+            mime_type=file.content_type,
+            file_size=len(contents),
+            image_width=image_np.shape[1],
+            image_height=image_np.shape[0],
+            capture_source="API_UPLOAD"
+        )
+        db.add(db_image)
+        db.flush()
+
+        # 2. Image Quality
         raw_q = q_result.get("raw_metrics", {})
+        db_quality = ImageQuality(
+            image_id=db_image.id,
+            usable=q_result.get("usable", True),
+            quality_score=q_result.get("quality_score"),
+            blur_score=raw_q.get("blur_score"),
+            brightness_score=raw_q.get("brightness_score"),
+            resolution_score=raw_q.get("resolution_score"),
+            issues=q_result.get("issues", []),
+            method=q_result.get("method")
+        )
+        db.add(db_quality)
+
+        # 3. Detections
+        det_map = {} # Maps crop_box or some identifier to Detection.id if possible, or we just save them
+        for det in pipeline_result["detections"]:
+            db_det = Detection(
+                image_id=db_image.id,
+                object_type=det.get("type", "package"),
+                confidence=det.get("confidence", 1.0)
+            )
+            if "crop_box" in det:
+                x, y, w, h = det["crop_box"]
+                db_det.x, db_det.y, db_det.width, db_det.height = x, y, w, h
+            db.add(db_det)
+            db.flush()
+            det_map["primary"] = db_det.id # Just store the last/first one as primary for now
+
+        # 4. Scan
         scan_db = Scan(
             product_id=db_product.id if db_product else None,
+            image_id=db_image.id,
             image_hash=image_hash,
             image_path=filepath,
+            # Legacy quality fields (optional, but keep for compat)
             quality_status=raw_q.get("status", "UNKNOWN"),
             blur_score=raw_q.get("blur_score", 0.0),
             brightness_score=raw_q.get("brightness_score", 0.0),
             glare_ratio=raw_q.get("glare_ratio", 0.0),
+            
             status=verdict["status"],
             public_label=verdict["public_label"],
             screening_confidence=verdict["screening_confidence"],
-            rule_version=verdict["rule_version"]
+            category=context.get("product_category"),
+            rule_version=verdict.get("rule_version", "2026.1")
         )
         db.add(scan_db)
         db.flush()
 
-        # Save OCR Tokens
+        # 5. Product Classification
+        if context:
+            db_class = ProductClassification(
+                scan_id=scan_db.id,
+                category=context.get("product_category", "general"),
+                subcategory=context.get("product_subcategory"),
+                confidence=context.get("confidence", 1.0)
+            )
+            db.add(db_class)
+
+        # 6. Save OCR Tokens
         for tok in ocr_tokens:
             db_ocr = OCRResult(
                 scan_id=scan_db.id,
+                detection_id=det_map.get("primary"),
                 token_id=tok["id"],
                 text=tok["text"],
-                polygon=tok["polygon"],
+                polygon=tok.get("polygon"),
+                bbox=tok.get("bbox"),
                 confidence=tok["confidence"],
-                language=tok.get("language", "en")
+                language=tok.get("language", "en"),
+                ocr_engine=tok.get("engine"),
+                ocr_version=tok.get("ocr_version")
             )
             db.add(db_ocr)
 
-        # Save Extracted Fields
-        for f_key, f_val in extracted_fields.items():
+        # 7. Save Extracted Fields (Evidence)
+        field_id_map = {}
+        for ev in evidence_list:
             db_field = ExtractedField(
                 scan_id=scan_db.id,
-                field_name=f_val["field_name"],
-                raw_value=f_val["raw_value"],
-                normalized_value=f_val["normalized_value"],
-                confidence=f_val["confidence"],
-                ocr_evidence_ids=f_val.get("ocr_evidence_ids", []),
-                extraction_method=f_val["extraction_method"]
+                field_name=ev["field"],
+                raw_value=ev.get("source", {}).get("raw_text"),
+                raw_text=ev.get("source", {}).get("raw_text"),
+                normalized_value=ev["value"],
+                found=ev["found"],
+                confidence=ev["confidence"],
+                source_type=ev.get("source", {}).get("type"),
+                source_image_id=db_image.id,
+                source_detection_id=det_map.get("primary"),
+                source_panel=ev.get("source", {}).get("panel"),
+                source_bbox=ev.get("source", {}).get("bbox"),
+                extraction_method=ev.get("method", "UNKNOWN")
             )
             db.add(db_field)
+            db.flush()
+            field_id_map[ev["field"]] = db_field.id
 
-        # Save Rule Results
-        for trace in rule_traces:
-            if trace.get("applicable", True):
+        # 8. Save Rule Results & Evidence Link
+        for trace_item in rule_traces:
+            if trace_item.get("applicable", True):
                 db_rule = RuleResult(
                     scan_id=scan_db.id,
-                    rule_id=trace["rule_id"],
-                    rule_name=trace.get("rule_name", trace["rule_id"]),
-                    status=trace["status"],
-                    confidence=trace["confidence"],
-                    reason=trace["reason"]
+                    rule_id=trace_item["rule_id"],
+                    rule_name=trace_item.get("rule_name", trace_item["rule_id"]),
+                    status=trace_item["status"],
+                    confidence=trace_item.get("confidence", 1.0),
+                    reason=trace_item["reason"]
                 )
                 db.add(db_rule)
+                db.flush()
+                
+                # Attempt to link evidence if mentioned in reason (or if explicitly provided in future)
+                for f_name, f_id in field_id_map.items():
+                    if f_name in trace_item["reason"]:
+                        link = RuleResultEvidence(
+                            rule_result_id=db_rule.id,
+                            evidence_id=f_id
+                        )
+                        db.add(link)
 
-        # Save Decision Trace
-        db_trace = DecisionTrace(
+        # 9. Save Review Factors
+        for rr in verdict.get("review_reasons", []):
+            db_rf = ReviewFactor(
+                scan_id=scan_db.id,
+                factor_type="RULE_REVIEW",
+                description=rr
+            )
+            db.add(db_rf)
+            
+        for iw in identity_warnings:
+            db_rf = ReviewFactor(
+                scan_id=scan_db.id,
+                factor_type=iw.get("type", "IDENTITY_MISMATCH"),
+                severity=iw.get("severity"),
+                description=iw.get("explanation")
+            )
+            db.add(db_rf)
+
+        # 10. Save Decision Trace
+        for t in decision_trace:
+            db_trace_step = DecisionTrace(
+                scan_id=scan_db.id,
+                stage=t.get("stage", "UNKNOWN"),
+                output_summary={"status": t.get("status"), "detail": t.get("detail")},
+                duration_ms=0.0
+            )
+            db.add(db_trace_step)
+
+        # Final overarching trace step
+        db_trace_final = DecisionTrace(
             scan_id=scan_db.id,
             stage="pipeline_complete",
             duration_ms=duration_ms,
             output_summary={"verdict": verdict["status"], "confidence": verdict["screening_confidence"]}
         )
-        db.add(db_trace)
+        db.add(db_trace_final)
 
         db.commit()
 
