@@ -712,3 +712,55 @@ async def get_scan_notice(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{scan_id}/evidence/{evidence_id}/correct")
+def correct_evidence(
+    scan_id: str,
+    evidence_id: str,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+        
+    evidence = db.query(ExtractedField).filter(ExtractedField.id == evidence_id, ExtractedField.scan_id == scan_id).first()
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    from backend.app.models.models import EvidenceCorrection, DecisionTrace, User
+    
+    officer = db.query(User).filter(User.role == "OFFICER").first()
+    if not officer:
+        officer = User(
+            email="officer@legalmetrology.gov.in",
+            hashed_password="hashed",
+            full_name="Inspector R. K. Sharma",
+            role="OFFICER"
+        )
+        db.add(officer)
+        db.commit()
+        db.refresh(officer)
+
+    correction = EvidenceCorrection(
+        evidence_id=evidence_id,
+        original_value=evidence.normalized_value,
+        corrected_value=payload.get("corrected_value"),
+        reason=payload.get("reason", "Manual officer override"),
+        corrected_by=officer.id
+    )
+    db.add(correction)
+    
+    evidence.normalized_value = payload.get("corrected_value")
+    
+    trace = DecisionTrace(
+        scan_id=scan_id,
+        stage="OFFICER_CORRECTION",
+        input_summary={"field": evidence.field_name, "old": correction.original_value},
+        output_summary={"status": "CORRECTED", "detail": f"Field '{evidence.field_name}' corrected to '{correction.corrected_value}' by Officer"},
+        duration_ms=0.0
+    )
+    db.add(trace)
+    
+    db.commit()
+    return {"status": "success", "correction_id": correction.id}
