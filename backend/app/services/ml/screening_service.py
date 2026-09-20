@@ -80,8 +80,23 @@ class ScreeningService:
         # The prompt says: Connect structured evidence to the EXISTING LM-Screen rule system.
         # Let's assume rules engine evaluate takes evidence_list.
         
-        # Need to reconstruct extracted_fields for old logic if we haven't rewritten it
-        extracted_fields_legacy = { e["field"]: {"normalized_value": e["value"], "confidence": e["confidence"]} for e in evidence_list if e["found"] }
+        # Build extracted_fields dict for the rule engine.
+        # Must include numeric_value, unit, raw_unit, evidence_state, and
+        # ocr_evidence_ids — the engine reads all of these for LM007-LM009.
+        # evidence_service now forwards all of these; map by field name.
+        extracted_fields_legacy = {
+            e["field"]: {
+                "normalized_value":  e["value"],
+                "confidence":        e["confidence"],
+                "evidence_state":    e.get("evidence_state", "PRESENT"),
+                "numeric_value":     e.get("numeric_value"),
+                "unit":              e.get("unit"),
+                "raw_unit":          e.get("raw_unit"),
+                "font_height_mm":    e.get("font_height_mm"),
+                "ocr_evidence_ids":  e.get("ocr_evidence_ids", []),
+            }
+            for e in evidence_list if e["found"]
+        }
         
         rule_traces = self.rule_engine.evaluate(extracted_fields_legacy, context, q_result.get("raw_metrics", {}))
         trace.append({"stage": "RULE_EVALUATION", "status": "OK", "detail": f"Evaluated {len(rule_traces)} rules"})

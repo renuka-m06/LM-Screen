@@ -25,84 +25,87 @@ class BarcodeEngine:
             }
 
         try:
-            import cv2
-            bd = cv2.barcode.BarcodeDetector()
-            gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
-            
-            # Use OpenCV detectAndDecode
-            res = bd.detectAndDecode(gray)
-            decoded_info, corners, decoded_type = None, None, None
-            if len(res) == 3:
-                decoded_info, corners, decoded_type = res
-            elif len(res) == 4:
-                _, decoded_info, decoded_type, corners = res
+            import os
+            try:
+                # Provide a best-effort DLL path addition for Windows Python 3.8+
+                import site
+                for sp in site.getsitepackages() + [site.getusersitepackages()]:
+                    pyzbar_dir = os.path.join(sp, "pyzbar")
+                    if os.path.exists(pyzbar_dir):
+                        os.add_dll_directory(pyzbar_dir)
+            except Exception:
+                pass
                 
-            if not decoded_info or (isinstance(decoded_info, (tuple, list)) and not decoded_info[0]):
-                res = bd.detectAndDecode(image_np)
-                if len(res) == 3:
-                    decoded_info, corners, decoded_type = res
-                elif len(res) == 4:
-                    _, decoded_info, decoded_type, corners = res
-
-            if decoded_info:
-                gtin = decoded_info[0] if isinstance(decoded_info, (tuple, list)) else decoded_info
+            from pyzbar.pyzbar import decode
+            
+            gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
+            res = decode(gray)
+            if not res:
+                res = decode(image_np)
+                
+            if res:
+                # Use the first decoded barcode
+                obj = res[0]
+                gtin = obj.data.decode("utf-8")
+                symbology = str(obj.type)
+                
                 if not gtin:
                     raise ValueError("Empty barcode decoded")
+                
+                # pyzbar polygon is a list of Point(x,y)
+                # bounding box is obj.rect (left, top, width, height)
+                width = obj.rect.width
+                height = obj.rect.height
+                
+                if obj.polygon and len(obj.polygon) >= 4:
+                    pts = obj.polygon
+                    barcode_polygon = [[pt.x, pt.y] for pt in pts]
+                else:
+                    l, t, w, h = obj.rect.left, obj.rect.top, obj.rect.width, obj.rect.height
+                    barcode_polygon = [[l, t], [l+w, t], [l+w, t+h], [l, t+h]]
                     
-                symbology = "EAN13"
-                if decoded_type is not None:
-                    symb_val = decoded_type[0] if isinstance(decoded_type, (tuple, list)) else decoded_type
-                    if symb_val:
-                        symbology = str(symb_val)
-
-                if corners is not None and len(corners) > 0:
-                    pts = corners[0] if len(corners.shape) == 3 else corners
-                    x_coords = [p[0] for p in pts]
-                    y_coords = [p[1] for p in pts]
-                    width = max(x_coords) - min(x_coords)
-                    height = max(y_coords) - min(y_coords)
+                aspect_ratio = width / height if height > 0 else 0
+                
+                if aspect_ratio > 0.5 and width > 30:
+                    measurement_mode = "estimate"
+                    scale_mm_per_pixel = None
                     
-                    # OpenCV barcode detector often returns a bounding box around a horizontal slice
-                    # of the barcode rather than the full height, so aspect ratio can be > 3.0.
-                    # We just ensure it's not a vertical sliver and width is sufficient.
-                    aspect_ratio = width / height if height > 0 else 0
-                    
-                    if aspect_ratio > 0.5 and width > 30:
-                        measurement_mode = "estimate"
-                        scale_mm_per_pixel = None
-                        
-                        if reference_card_width_px and reference_card_width_px > 0:
-                            scale_mm_per_pixel = 85.6 / reference_card_width_px
-                            measurement_mode = "certified"
-                        else:
-                            nominal_width_mm = 37.29 if "EAN13" in symbology.upper() else 25.0
-                            scale_mm_per_pixel = nominal_width_mm / width
-                            
-                        return {
-                            "status": "VALIDATED_SCALE_REFERENCE",
-                            "gtin": gtin,
-                            "symbology": symbology,
-                            "scale_reference_usable": True,
-                            "scale_mm_per_pixel": round(scale_mm_per_pixel, 4),
-                            "measurement_mode": measurement_mode,
-                            "barcode_polygon": [[int(pt[0]), int(pt[1])] for pt in pts],
-                            "reasons": [f"Decoded {symbology} barcode: {gtin}. Valid scale reference established ({measurement_mode})."]
-                        }
+                    if reference_card_width_px and reference_card_width_px > 0:
+                        scale_mm_per_pixel = 85.6 / reference_card_width_px
+                        measurement_mode = "certified"
                     else:
-                        return {
-                            "status": "PARTIAL_OR_DISTORTED_BARCODE",
-                            "gtin": gtin,
-                            "symbology": symbology,
-                            "scale_reference_usable": False,
-                            "scale_mm_per_pixel": None,
-                            "measurement_mode": None,
-                            "reasons": ["photo too distorted for reliable measurement"]
-                        }
+                        nominal_width_mm = 37.29 if "EAN13" in symbology.upper() else 25.0
+                        scale_mm_per_pixel = nominal_width_mm / width
+                        
+                    return {
+                        "status": "VALID_SCALE_REFERENCE",
+                        "gtin": gtin,
+                        "symbology": symbology,
+                        "scale_reference_usable": True,
+                        "scale_mm_per_pixel": round(scale_mm_per_pixel, 4),
+                        "measurement_mode": measurement_mode,
+                        "barcode_polygon": barcode_polygon,
+                        "reasons": [f"Decoded {symbology} barcode: {gtin}. Valid scale reference established ({measurement_mode})."]
+                    }
+                else:
+                    return {
+                        "status": "DECODED_NOT_MEASURABLE",
+                        "gtin": gtin,
+                        "symbology": symbology,
+                        "scale_reference_usable": False,
+                        "scale_mm_per_pixel": None,
+                        "measurement_mode": None,
+                        "barcode_polygon": barcode_polygon,
+                        "reasons": ["photo too distorted for reliable measurement"]
+                    }
+        except ImportError as e:
+            # Re-raise import errors to make dependency gaps obvious
+            print(f"pyzbar dependency missing: {e}")
         except Exception as e:
-            pass
+            print(f"Barcode exception: {e}")
 
         return {
-            "status": "BARCODE_NOT_FOUND",
+            "status": "NOT_DETECTED",
             "gtin": None,
             "symbology": None,
             "scale_reference_usable": False,
@@ -110,3 +113,4 @@ class BarcodeEngine:
             "measurement_mode": None,
             "reasons": ["No visible barcode detected in current image."]
         }
+

@@ -130,8 +130,26 @@ class FieldExtractor:
         )
 
         # Best before / expiry
+        # Separator class includes whitespace, underscore and hyphen — EasyOCR commonly
+        # joins two-word labels with _ or - instead of a space (e.g. "USE_BY", "USE-BY").
         self.exp_date_pattern = re.compile(
-            r"(?:exp(?:iry|ires?)?|use[\s_]*by|best\s*before|bb)[^0-9\n]{0,30}?([0-9]{1,2}\s*[\/\.\-]\s*[0-9]{1,2}\s*[\/\.\-]\s*[0-9]{2,4}|[0-9]{1,2}\s*[\/\.\-]\s*[0-9]{2,4}|[0-9]{1,2}\s*months?|[a-zA-Z]{3,9}\s*[0-9]{4})",
+            r"(?:exp(?:iry|ires?)?|use[\s_\-]*by|best[\s_\-]*before|bb)[^0-9\n]{0,30}?([0-9]{1,2}\s*[\/\.\-]\s*[0-9]{1,2}\s*[\/\.\-]\s*[0-9]{2,4}|[0-9]{1,2}\s*[\/\.\-]\s*[0-9]{2,4}|[0-9]{1,2}\s*months?|[a-zA-Z]{3,9}\s*[0-9]{4})",
+            re.IGNORECASE
+        )
+
+        # Compiled date-value pattern used by the spatial pairing path.
+        # Matches the same date formats as exp_date_pattern's capture group.
+        self._DATE_VALUE_RE = re.compile(
+            r"\b([0-9]{1,2}\s*[\/\.\-]\s*[0-9]{1,2}\s*[\/\.\-]\s*[0-9]{2,4}|[0-9]{1,2}\s*[\/\.\-]\s*[0-9]{2,4})\b"
+        )
+        # Keyword tokens that indicate a best-before / expiry label.
+        self._EXP_LABEL_RE = re.compile(
+            r"\b(?:exp(?:iry|ires?)?|use[\s_\-]*by|best[\s_\-]*before|bb)\b",
+            re.IGNORECASE
+        )
+        # Keyword tokens that indicate a packing-date label.
+        self._PKD_LABEL_RE = re.compile(
+            r"\b(?:packed?\s*on|pack(?:ing)?\s*date|p\.?k\.?d\.?)\b",
             re.IGNORECASE
         )
 
@@ -165,8 +183,10 @@ class FieldExtractor:
         self.pincode_pattern = re.compile(r"\b([1-9][0-9]{5})\b")
 
         # Unit Sale Price (USP)
+        # {1,4} instead of {1,2}: real-world USP values can have up to 4 decimal
+        # digits of precision (e.g. Rs 0.1625/g = Rs 162.5 per kg).
         self.usp_pattern = re.compile(
-            r"(?:usp|unit\s*sale\s*price|price\s*per|rs\.?|inr|₹)[:\s]*([0-9]+\.[0-9]{1,2})\s*(?:per|\/)\s*(g|kg|ml|l|liter|litre|pc|piece|no)\b",
+            r"(?:usp|unit\s*sale\s*price|price\s*per|rs\.?|inr|₹)[:\s]*([0-9]+\.[0-9]{1,4})\s*(?:per|\/)\s*(g|kg|ml|l|liter|litre|pc|piece|no)\b",
             re.IGNORECASE
         )
 
@@ -288,18 +308,98 @@ class FieldExtractor:
             }
 
         # ── 6. Best Before / Expiry ──────────────────────────────────────────────
-        exp_match = self.exp_date_pattern.search(full_text)
-        if exp_match:
-            raw = exp_match.group(0)
-            val = exp_match.group(1)
-            matched_ids = [t["id"] for t in ocr_tokens if any(w.lower() in t["text"].lower() for w in ["exp", "best", "before", "use"])]
+        # Spatial path first: when OCR returns multi-word date-region labels as
+        # separate tokens (e.g. PACKED | ON | USE_BY | 12-09-26 | 15-09-26 in a
+        # two-column layout), the flattened text places both dates after both
+        # labels, so a plain regex always picks up the *first* date regardless of
+        # which label it belongs to.  Instead, find label tokens with bounding
+        # boxes and pair each one with the date token whose x-centre is closest
+        # to the label's x-centre.  Fall back to the regex when no polygon data
+        # is available (demo / single-line labels).
+        def _x_centre(tok):
+            poly = tok.get("polygon") or []
+            if poly and len(poly) >= 2:
+                return sum(pt[0] for pt in poly) / len(poly)
+            return None
+
+        def _y_centre(tok):
+            poly = tok.get("polygon") or []
+            if poly and len(poly) >= 2:
+                return sum(pt[1] for pt in poly) / len(poly)
+            return None
+
+        exp_val = None
+        exp_raw = None
+        exp_method = None
+        exp_matched_ids = []
+
+        # Collect all date-value tokens in the image.
+        date_tokens = [
+            t for t in ocr_tokens if self._DATE_VALUE_RE.search(t.get("text", ""))
+        ]
+
+        # Identify exp-label tokens (USE_BY, Best Before, Exp, etc.) that have
+        # spatial position data.
+        exp_label_tokens = [
+            t for t in ocr_tokens
+            if self._EXP_LABEL_RE.search(t.get("text", ""))
+            and _x_centre(t) is not None
+        ]
+
+        if exp_label_tokens and date_tokens:
+            # For each exp-label token, find the date token with the nearest
+            # x-coordinate (same column in a two-column layout) that is BELOW
+            # the label token (higher y value) or in the same spatial row.
+            best_label = None
+            best_date_tok = None
+            best_dist = float("inf")
+
+            for lbl in exp_label_tokens:
+                lbl_x = _x_centre(lbl)
+                lbl_y = _y_centre(lbl)
+                for dt in date_tokens:
+                    dt_x = _x_centre(dt)
+                    dt_y = _y_centre(dt)
+                    if dt_x is None or lbl_x is None:
+                        continue
+                    # Only consider date tokens that are to the right of or below
+                    # the label (not from a completely different column to the left).
+                    if dt_y is not None and lbl_y is not None and dt_y < lbl_y - 10:
+                        continue  # date is above the label — skip
+                    dist = abs(dt_x - lbl_x)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_label = lbl
+                        best_date_tok = dt
+
+            if best_date_tok is not None:
+                date_m = self._DATE_VALUE_RE.search(best_date_tok.get("text", ""))
+                if date_m:
+                    exp_val = date_m.group(1)
+                    exp_raw = f"{best_label.get('text', 'USE BY')} {best_date_tok.get('text', '')}"
+                    exp_method = "SPATIAL_TOKEN_PAIRING"
+                    exp_matched_ids = [best_label["id"], best_date_tok["id"]]
+
+        # Fallback: regex on flattened text (works for single-line / demo labels).
+        if exp_val is None:
+            exp_match = self.exp_date_pattern.search(full_text)
+            if exp_match:
+                exp_raw = exp_match.group(0)
+                exp_val = exp_match.group(1)
+                exp_method = "KEYWORD_ANCHOR"
+                exp_matched_ids = [
+                    t["id"] for t in ocr_tokens
+                    if any(w.lower() in t["text"].lower() for w in ["exp", "best", "before", "use"])
+                ]
+
+        if exp_val is not None:
             extracted["best_before"] = {
                 "field_name": "best_before",
-                "raw_value": raw,
-                "normalized_value": val,
-                "confidence": 0.89,
-                "ocr_evidence_ids": matched_ids,
-                "extraction_method": "KEYWORD_ANCHOR",
+                "raw_value": exp_raw,
+                "normalized_value": exp_val,
+                "confidence": 0.89 if exp_method == "SPATIAL_TOKEN_PAIRING" else 0.85,
+                "ocr_evidence_ids": exp_matched_ids,
+                "extraction_method": exp_method,
                 "evidence_state": "PRESENT"
             }
         elif any(k in full_text.lower() for k in ["best before", "use by", "expiry", "exp date", "exp:"]):

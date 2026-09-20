@@ -20,11 +20,12 @@ class BarcodeService:
         result = self.barcode_engine.decode_and_validate(image_np)
         
         status = result.get("status")
-        if status in ["VALID_GTIN", "INVALID_CHECKSUM", "NON_GTIN_BARCODE"]:
+        
+        if status in ["VALID_SCALE_REFERENCE", "DECODED_NOT_MEASURABLE"]:
             return {
-                "value": result.get("gtin") or result.get("raw_text"),
-                "format": result.get("barcode_type", "UNKNOWN"),
-                "confidence": 0.99, # Decoder confidence is generally absolute if decoded
+                "value": result.get("gtin"),
+                "format": result.get("symbology", "UNKNOWN"),
+                "confidence": 0.99,
                 "status": "DETECTED",
                 "validation_status": status,
                 "raw_metrics": result

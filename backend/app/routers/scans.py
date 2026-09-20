@@ -4,7 +4,7 @@ import time
 import hashlib
 import numpy as np
 from PIL import Image
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Header
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -718,8 +718,12 @@ def correct_evidence(
     scan_id: str,
     evidence_id: str,
     payload: dict,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_user_role: Optional[str] = Header(None)
 ):
+    if x_user_role and x_user_role.upper() != "OFFICER":
+        raise HTTPException(status_code=403, detail="Officer authorization required.")
+
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -739,28 +743,32 @@ def correct_evidence(
             role="OFFICER"
         )
         db.add(officer)
-        db.commit()
-        db.refresh(officer)
+        db.flush()
 
-    correction = EvidenceCorrection(
-        evidence_id=evidence_id,
-        original_value=evidence.normalized_value,
-        corrected_value=payload.get("corrected_value"),
-        reason=payload.get("reason", "Manual officer override"),
-        corrected_by=officer.id
-    )
-    db.add(correction)
-    
-    evidence.normalized_value = payload.get("corrected_value")
-    
-    trace = DecisionTrace(
-        scan_id=scan_id,
-        stage="OFFICER_CORRECTION",
-        input_summary={"field": evidence.field_name, "old": correction.original_value},
-        output_summary={"status": "CORRECTED", "detail": f"Field '{evidence.field_name}' corrected to '{correction.corrected_value}' by Officer"},
-        duration_ms=0.0
-    )
-    db.add(trace)
-    
-    db.commit()
+    try:
+        correction = EvidenceCorrection(
+            evidence_id=evidence_id,
+            original_value=evidence.normalized_value,
+            corrected_value=payload.get("corrected_value"),
+            reason=payload.get("reason", "Manual officer override"),
+            corrected_by=officer.id
+        )
+        db.add(correction)
+        
+        evidence.normalized_value = payload.get("corrected_value")
+        
+        trace = DecisionTrace(
+            scan_id=scan_id,
+            stage="OFFICER_CORRECTION",
+            input_summary={"field": evidence.field_name, "old": correction.original_value},
+            output_summary={"status": "CORRECTED", "detail": f"Field '{evidence.field_name}' corrected to '{correction.corrected_value}' by Officer"},
+            duration_ms=0.0
+        )
+        db.add(trace)
+        
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+        
     return {"status": "success", "correction_id": correction.id}
