@@ -255,6 +255,7 @@ class RuleResult(Base):
     rule_name = Column(String, nullable=False)
     version = Column(String, default="2026.1")
     status = Column(String, nullable=False, index=True)
+    applicability = Column(String, nullable=False, default="REQUIRED")
     confidence = Column(Float, nullable=False, default=1.0)
     reason = Column(Text, nullable=False)
     evaluated_at = Column(DateTime, default=datetime.datetime.utcnow)

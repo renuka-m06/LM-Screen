@@ -13,18 +13,53 @@ class ContextClassifier:
         full_text = " ".join([t.get("text", "") for t in text_tokens]).lower()
 
         # 1. Product Category
-        product_category = "general"
-        food_keywords = [
-            "food", "fssai", "ingredients", "nutrition", "biscuit", "snack", "oil", "milk", "beverage",
-            "tea", "coffee", "atta", "flour", "wheat", "rice", "dal", "pulse", "cereal", "grain",
-            "spice", "masala", "sugar", "salt", "chocolate", "confectionery", "powder", "edible", "bread"
-        ]
-        if any(w in full_text for w in food_keywords):
-            product_category = "food"
-        elif any(w in full_text for w in ["cosmetic", "shampoo", "soap", "lotion", "cream", "dermatologically", "face wash"]):
-            product_category = "cosmetics"
-        elif any(w in full_text for w in ["pharma", "medicine", "tablets", "syrup", "capsule", "dosage"]):
-            product_category = "pharmaceutical"
+        product_category = "CONTEXT_REVIEW_REQUIRED"
+        category_scores = {
+            "food": 0.0,
+            "cosmetics": 0.0,
+            "pharmaceutical": 0.0,
+            "electronics": 0.0,
+            "textile": 0.0,
+            "cable": 0.0,
+            "mattress": 0.0,
+            "general": 0.1 # Baseline
+        }
+        
+        food_keywords = ["food", "fssai", "ingredients", "nutrition", "biscuit", "snack", "oil", "milk", "beverage", "tea", "coffee", "atta", "flour", "wheat", "rice", "dal", "pulse", "cereal", "grain", "spice", "masala", "sugar", "salt", "chocolate", "confectionery", "powder", "edible", "bread"]
+        for w in food_keywords:
+            if w in full_text: category_scores["food"] += 0.2
+            
+        cosmetic_keywords = ["cosmetic", "shampoo", "soap", "lotion", "cream", "dermatologically", "face wash"]
+        for w in cosmetic_keywords:
+            if w in full_text: category_scores["cosmetics"] += 0.2
+            
+        pharma_keywords = ["pharma", "medicine", "tablets", "syrup", "capsule", "dosage"]
+        for w in pharma_keywords:
+            if w in full_text: category_scores["pharmaceutical"] += 0.2
+            
+        electronics_keywords = ["electronics", "voltage", "watt", "hz", "plug", "socket", "battery", "charger", "cable", "usb", "screen", "display"]
+        for w in electronics_keywords:
+            if w in full_text: category_scores["electronics"] += 0.2
+            
+        textile_keywords = ["textile", "cotton", "polyester", "fabric", "garment", "shirt", "pant", "size", "cm", "thread"]
+        for w in textile_keywords:
+            if w in full_text: category_scores["textile"] += 0.2
+            
+        cable_keywords = ["wire", "cable", "conductor", "insulation", "length", "sq mm"]
+        for w in cable_keywords:
+            if w in full_text: category_scores["cable"] += 0.2
+            
+        mattress_keywords = ["mattress", "foam", "bedding", "spring", "coir"]
+        for w in mattress_keywords:
+            if w in full_text: category_scores["mattress"] += 0.2
+            
+        best_category = max(category_scores, key=category_scores.get)
+        best_score = category_scores[best_category]
+        
+        if best_score > 0.3:
+            product_category = best_category
+        else:
+            product_category = "CONTEXT_REVIEW_REQUIRED"
 
         # 2. Market Context
         market_context = "retail"
@@ -46,7 +81,7 @@ class ContextClassifier:
             package_type = "multi_pack"
 
         # Context confidence
-        context_confidence = 0.92 if product_category != "general" or market_context != "unknown" else 0.70
+        context_confidence = min(best_score, 1.0) if product_category != "CONTEXT_REVIEW_REQUIRED" else 0.4
 
         return {
             "product_category": product_category,

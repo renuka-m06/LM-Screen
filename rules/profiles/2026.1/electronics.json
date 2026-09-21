@@ -1,0 +1,23 @@
+{
+  "profile_id": "LM_ELECTRONICS_2026.1",
+  "name": "Electronics",
+  "version": "2026.1",
+  "parent_profile": "LM_COMMON_2026.1",
+  "requirements": [
+    {
+      "field": "batch_number",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "Rule 6(1)(e)"
+    },
+    {
+      "field": "manufacture_date",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(d)"
+    },
+    {
+      "field": "dimensions",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "Rule 6(1)(f)"
+    }
+  ]
+}

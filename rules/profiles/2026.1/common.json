@@ -1,120 +1,37 @@
 {
   "profile_id": "LM_COMMON_2026.1",
-  "name": "General Packaged Commodities Screening Profile",
+  "name": "General Pre-Packaged Product",
   "version": "2026.1",
-  "effective_date": "2026-01-01",
-  "rules": [
+  "requirements": [
     {
-      "rule_id": "LM001",
-      "name": "MRP Declaration Screening",
-      "description": "Checks for visible Maximum Retail Price (MRP) declaration including taxes.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["mrp"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(e) Legal Metrology (Packaged Commodities) Rules, 2011"
+      "field": "product_name",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(b)"
     },
     {
-      "rule_id": "LM002",
-      "name": "Net Quantity Declaration Screening",
-      "description": "Checks for visible Net Quantity statement with standard metric units.",
-      "applies_when": { "market_context": ["retail", "institutional", "unknown"] },
-      "required_fields": ["net_quantity"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(c) Legal Metrology (Packaged Commodities) Rules, 2011"
+      "field": "manufacturer",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(a)"
     },
     {
-      "rule_id": "LM003",
-      "name": "Date of Manufacture/Packing/Import Screening",
-      "description": "Checks for visible Month and Year of manufacture, packing, or import.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["manufacture_date", "packing_date", "import_date"],
-      "require_any": true,
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(d) Legal Metrology (Packaged Commodities) Rules, 2011"
+      "field": "address",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(a)"
     },
     {
-      "rule_id": "LM004",
-      "name": "Manufacturer/Packer/Importer Identity & Address",
-      "description": "Checks for visible name and complete postal address of manufacturer/packer/importer.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["manufacturer_or_packer", "address"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(a) Legal Metrology (Packaged Commodities) Rules, 2011"
+      "field": "net_quantity",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(c)"
     },
     {
-      "rule_id": "LM005",
-      "name": "Consumer Care Contact Information",
-      "description": "Checks for visible Consumer Care details (Name, Address, Phone, or Email).",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["consumer_care"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(2) Legal Metrology (Packaged Commodities) Rules, 2011"
+      "field": "mrp",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(e)"
     },
     {
-      "rule_id": "LM006",
-      "name": "Country of Origin (Imported Goods)",
-      "description": "Checks for explicit Country of Origin declaration on imported pre-packaged goods.",
-      "applies_when": { "origin": ["imported"] },
-      "required_fields": ["country_of_origin"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(n) Legal Metrology (Packaged Commodities) Rules, 2011"
-    },
-    {
-      "rule_id": "LM007",
-      "name": "Numeral Height Declaration Screening",
-      "description": "Checks if the font height of statutory numerals meets the Schedule II minimum requirement based on the Principal Display Panel (PDP) area.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["mrp", "net_quantity"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 9 (Schedule II) Legal Metrology (Packaged Commodities) Rules, 2011"
-    },
-    {
-      "rule_id": "LM008",
-      "name": "Unit Sale Price (USP) Declaration and Arithmetic Validation",
-      "description": "Checks for the presence of the USP declaration and verifies its mathematical correctness.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["mrp", "net_quantity"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(11) Legal Metrology (Packaged Commodities) Rules, 2011"
-    },
-    {
-      "rule_id": "LM009",
-      "name": "Standard Unit Validator",
-      "description": "Checks if the declared unit of measurement uses standard SI abbreviations.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["net_quantity"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 11 and 12 Legal Metrology (Packaged Commodities) Rules, 2011"
-    },
-    {
-      "rule_id": "LM010",
-      "name": "Dimensions Declaration",
-      "description": "Checks for visible dimensions (length, breadth, thickness, size).",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["dimensions"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(f) Legal Metrology (Packaged Commodities) Rules, 2011"
-    },
-    {
-      "rule_id": "LM011",
-      "name": "Date Chronology Validation",
-      "description": "Checks if the Best Before / Expiry date is logically after the Date of Manufacture / Packing.",
-      "applies_when": { "market_context": ["retail", "unknown"] },
-      "required_fields": ["best_before", "manufacture_date"],
-      "require_any": false,
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Logical consistency check for chronological declarations."
+      "field": "consumer_care",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(2)"
     }
   ]
 }

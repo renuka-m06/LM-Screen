@@ -1,0 +1,33 @@
+{
+  "profile_id": "LM_PHARMACEUTICAL_2026.1",
+  "name": "Pharmaceutical",
+  "version": "2026.1",
+  "parent_profile": "LM_COMMON_2026.1",
+  "requirements": [
+    {
+      "field": "batch_number",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(e)"
+    },
+    {
+      "field": "manufacture_date",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(d)"
+    },
+    {
+      "field": "expiry_date",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(d)"
+    },
+    {
+      "field": "ingredients",
+      "applicability": "REQUIRED",
+      "legal_reference": "Drugs and Cosmetics Act"
+    },
+    {
+      "field": "warnings",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "Drugs and Cosmetics Act"
+    }
+  ]
+}

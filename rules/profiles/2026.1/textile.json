@@ -1,0 +1,18 @@
+{
+  "profile_id": "LM_TEXTILE_2026.1",
+  "name": "Textile",
+  "version": "2026.1",
+  "parent_profile": "LM_COMMON_2026.1",
+  "requirements": [
+    {
+      "field": "dimensions",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(f)"
+    },
+    {
+      "field": "size",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "Rule 6(1)(f)"
+    }
+  ]
+}

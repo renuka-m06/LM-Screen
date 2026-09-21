@@ -259,26 +259,27 @@ async def process_scan(
 
         # 8. Save Rule Results & Evidence Link
         for trace_item in rule_traces:
-            if trace_item.get("applicable", True):
-                db_rule = RuleResult(
-                    scan_id=scan_db.id,
-                    rule_id=trace_item["rule_id"],
-                    rule_name=trace_item.get("rule_name", trace_item["rule_id"]),
-                    status=trace_item["status"],
-                    confidence=trace_item.get("confidence", 1.0),
-                    reason=trace_item["reason"]
-                )
-                db.add(db_rule)
-                db.flush()
+            db_rule = RuleResult(
+                scan_id=scan_db.id,
+                rule_id=trace_item.get("rule_id", "UNKNOWN"),
+                rule_name=trace_item.get("field", "general"),
+                status=trace_item.get("status", "UNKNOWN"),
+                applicability=trace_item.get("applicability", "REQUIRED"),
+                confidence=trace_item.get("confidence", 1.0),
+                reason=trace_item.get("reason", "N/A")
+            )
+            db.add(db_rule)
+            db.flush()
                 
-                # Attempt to link evidence if mentioned in reason (or if explicitly provided in future)
-                for f_name, f_id in field_id_map.items():
-                    if f_name in trace_item["reason"]:
-                        link = RuleResultEvidence(
-                            rule_result_id=db_rule.id,
-                            evidence_id=f_id
-                        )
-                        db.add(link)
+                
+            # Link evidence explicitly from the engine's field
+            f_id = field_id_map.get(trace_item.get("field"))
+            if f_id:
+                link = RuleResultEvidence(
+                    rule_result_id=db_rule.id,
+                    evidence_id=f_id
+                )
+                db.add(link)
 
         # 9. Save Review Factors
         for rr in verdict.get("review_reasons", []):
@@ -507,6 +508,7 @@ def get_scan_findings(scan_id: str, db: Session = Depends(get_db)):
             "finding_id": rule_result.id,
             "scan_id": scan_id,
             "field": primary_field or "general",
+            "applicability": rule_result.applicability,
             "observed_value": extracted_field.normalized_value if extracted_field else None,
             "rule_reference": rule_result.rule_name,
             "status": rule_result.status,

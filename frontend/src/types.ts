@@ -36,6 +36,7 @@ export interface Finding {
   finding_id: string;
   scan_id: string;
   field: string;
+  applicability: string;
   observed_value: string | null;
   rule_reference: string;
   status: string;

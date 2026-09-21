@@ -424,10 +424,45 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
           {/* OVERVIEW TAB — Evidence Chain */}
           {activeTab === 'overview' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
-              {/* Evidence Chain */}
-              <div className="glass-panel" style={{ padding: '20px' }}>
-                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <TrendingUp size={16} color="var(--color-primary)" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {scanDetail?.product_context && (
+                  <div className="glass-panel" style={{ padding: '20px' }}>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Package size={16} color="var(--color-primary)" />
+                      Product Context (Applicability Drivers)
+                    </h4>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Category</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                          {scanDetail.product_context.product_category === 'CONTEXT_REVIEW_REQUIRED' ? (
+                            <span style={{ color: 'var(--accent-review)' }}>⚠ REVIEW REQUIRED</span>
+                          ) : (
+                            scanDetail.product_context.product_category || 'General'
+                          )}
+                        </span>
+                      </div>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Market Context</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{scanDetail.product_context.market_context || 'Retail'}</span>
+                      </div>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Origin</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{scanDetail.product_context.origin || 'Domestic'}</span>
+                      </div>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Classifier Confidence</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {((scanDetail.product_context.context_confidence || 1) * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {/* Evidence Chain */}
+                <div className="glass-panel" style={{ padding: '20px' }}>
+                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <TrendingUp size={16} color="var(--color-primary)" />
                   WHY this risk level? — Evidence Chain
                 </h4>
 
@@ -450,6 +485,8 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
 
                 {/* Top Issues */}
                 {intel.risk_summary.top_issues.length > 0 && (
@@ -582,6 +619,9 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                       <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: 'var(--color-subtle-bg)', color: 'var(--text-primary)', textTransform: 'uppercase' }}>
                                         {finding.field.replace(/_/g, ' ')}
+                                      </span>
+                                      <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', background: finding.applicability === 'REQUIRED' ? 'var(--color-primary)' : 'var(--color-subtle-bg)', color: finding.applicability === 'REQUIRED' ? '#fff' : 'var(--text-secondary)' }}>
+                                        {finding.applicability}
                                       </span>
                                       <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                                         {finding.rule_reference}

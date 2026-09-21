@@ -2,51 +2,83 @@ import pytest
 from rules.engine import DeterministicRuleEngine
 from rules.verdict import VerdictAggregator
 
-def test_rule_engine_pass():
+def test_rule_engine_common_profile():
     engine = DeterministicRuleEngine()
     extracted_fields = {
-        "mrp": {"field_name": "mrp", "raw_value": "20", "normalized_value": "₹ 20.00", "ocr_evidence_ids": ["t1"]},
-        "net_quantity": {"field_name": "net_quantity", "raw_value": "100g", "normalized_value": "100 g", "ocr_evidence_ids": ["t2"]},
-        "manufacture_date": {"field_name": "manufacture_date", "raw_value": "01/2026", "normalized_value": "01/2026", "ocr_evidence_ids": ["t3"]}
+        "product_name": {"field_name": "product_name"},
+        "manufacturer": {"field_name": "manufacturer"},
+        "address": {"field_name": "address"},
+        "net_quantity": {"field_name": "net_quantity"},
+        "mrp": {"field_name": "mrp"},
+        "consumer_care": {"field_name": "consumer_care"},
     }
     context = {"product_category": "general", "origin": "domestic"}
-    quality_status = {"status": "ACCEPTABLE", "blur_score": 120.0}
+    quality_status = {"status": "ACCEPTABLE"}
 
     traces = engine.evaluate(extracted_fields, context, quality_status)
-    assert len(traces) > 0
-    mrp_trace = next(t for t in traces if t["rule_id"] == "LM001")
-    assert mrp_trace["status"] == "PASS"
+    assert len(traces) == 6
+    for t in traces:
+        assert t["status"] == "PASS"
 
-def test_rule_engine_potential_non_compliance():
+def test_rule_engine_food_profile():
     engine = DeterministicRuleEngine()
     extracted_fields = {
-        "net_quantity": {"field_name": "net_quantity", "raw_value": "100g", "normalized_value": "100 g"}
+        "product_name": {"field_name": "product_name"},
+        "batch_number": {"field_name": "batch_number"}
     }
-    context = {"product_category": "general", "origin": "domestic"}
-    quality_status = {"status": "ACCEPTABLE", "blur_score": 120.0}
+    context = {"product_category": "food", "origin": "domestic"}
+    quality_status = {"status": "ACCEPTABLE"}
 
     traces = engine.evaluate(extracted_fields, context, quality_status)
-    mrp_trace = next(t for t in traces if t["rule_id"] == "LM001")
-    assert mrp_trace["status"] == "POTENTIAL_NON_COMPLIANCE"
+    assert len(traces) > 6 # common + food
+    
+    batch_trace = next(t for t in traces if t["field"] == "batch_number")
+    assert batch_trace["status"] == "PASS"
+    assert batch_trace["applicability"] == "REQUIRED"
 
-def test_verdict_aggregator_three_states():
-    aggregator = VerdictAggregator()
-    quality = {"status": "ACCEPTABLE"}
-    barcode = {"scale_reference_usable": True}
-    context = {"context_confidence": 0.95}
+    mrp_trace = next(t for t in traces if t["field"] == "mrp")
+    assert mrp_trace["status"] == "MISSING"
 
-    # Pass
-    res_pass = aggregator.aggregate([{"rule_id": "LM001", "status": "PASS", "applicable": True}], quality, barcode, context)
-    assert res_pass["status"] == "PASS_SCREENING"
-    assert res_pass["public_label"] == "No issue detected in the checks performed"
+def test_rule_engine_imported_product():
+    engine = DeterministicRuleEngine()
+    extracted_fields = {}
+    context = {"product_category": "general", "origin": "imported"}
+    quality_status = {"status": "ACCEPTABLE"}
 
-    # Potential non-compliance
-    res_pot = aggregator.aggregate([{"rule_id": "LM001", "status": "POTENTIAL_NON_COMPLIANCE", "reason": "MRP missing", "applicable": True}], quality, barcode, context)
-    assert res_pot["status"] == "POTENTIAL_NON_COMPLIANCE"
-    assert res_pot["public_label"] == "Potential non-compliance detected"
+    traces = engine.evaluate(extracted_fields, context, quality_status)
+    
+    coo_trace = next(t for t in traces if t["field"] == "country_of_origin")
+    assert coo_trace["status"] == "MISSING"
 
-    # Retake required / Needs review
-    quality_blurry = {"status": "RETAKE_REQUIRED", "reasons": ["Image blurry"]}
-    res_review = aggregator.aggregate([], quality_blurry, barcode, context)
-    assert res_review["status"] == "NEEDS_REVIEW"
-    assert res_review["public_label"] == "More evidence or human review required"
+def test_rule_engine_textile_dimensions():
+    engine = DeterministicRuleEngine()
+    extracted_fields = {}
+    context = {"product_category": "textile", "origin": "domestic"}
+    quality_status = {"status": "ACCEPTABLE"}
+
+    traces = engine.evaluate(extracted_fields, context, quality_status)
+    
+    dim_trace = next(t for t in traces if t["field"] == "dimensions")
+    assert dim_trace["status"] == "MISSING"
+
+def test_rule_engine_poor_image_quality():
+    engine = DeterministicRuleEngine()
+    extracted_fields = {}
+    context = {"product_category": "general", "origin": "domestic"}
+    quality_status = {"status": "RETAKE_REQUIRED"}
+
+    traces = engine.evaluate(extracted_fields, context, quality_status)
+    
+    mrp_trace = next(t for t in traces if t["field"] == "mrp")
+    assert mrp_trace["status"] == "REVIEW_REQUIRED" # No false positives when quality is poor
+
+def test_rule_engine_unknown_category():
+    engine = DeterministicRuleEngine()
+    extracted_fields = {}
+    context = {"product_category": "CONTEXT_REVIEW_REQUIRED", "origin": "domestic"}
+    quality_status = {"status": "ACCEPTABLE"}
+
+    traces = engine.evaluate(extracted_fields, context, quality_status)
+    assert len(traces) == 1
+    assert traces[0]["status"] == "REVIEW_REQUIRED"
+    assert traces[0]["field"] == "context"

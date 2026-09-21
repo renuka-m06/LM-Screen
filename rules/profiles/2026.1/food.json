@@ -1,49 +1,43 @@
 {
   "profile_id": "LM_FOOD_2026.1",
-  "name": "Food Commodity Legal Metrology & Basic Labelling Profile",
+  "name": "Food Pre-Packaged",
   "version": "2026.1",
-  "effective_date": "2026-01-01",
   "parent_profile": "LM_COMMON_2026.1",
-  "rules": [
+  "requirements": [
     {
-      "rule_id": "LM_FOOD001",
-      "name": "Best Before / Expiry Date Screening",
-      "description": "Checks for visible Best Before or Expiry Date declaration for pre-packaged food commodities.",
-      "applies_when": { "product_category": ["food", "beverage"] },
-      "required_fields": ["best_before"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "FSSAI Packaging & Labelling Regulations & Legal Metrology Rules"
+      "field": "batch_number",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(e)"
     },
     {
-      "rule_id": "LM_FOOD002",
-      "name": "FSSAI License Declaration",
-      "description": "Checks for visible 14-digit FSSAI license number.",
-      "applies_when": { "product_category": ["food", "beverage"] },
-      "required_fields": ["fssai_license"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "FSSAI Packaging & Labelling Regulations"
+      "field": "manufacture_date",
+      "applicability": "REQUIRED",
+      "legal_reference": "FSSAI Regulations"
     },
     {
-      "rule_id": "LM_FOOD003",
-      "name": "Batch / Lot Number",
-      "description": "Checks for visible Batch or Lot number.",
-      "applies_when": { "product_category": ["food", "beverage"] },
-      "required_fields": ["batch_number"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "Rule 6(1)(e) Legal Metrology"
+      "field": "best_before",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "FSSAI Regulations"
     },
     {
-      "rule_id": "LM_FOOD004",
-      "name": "Ingredients List",
-      "description": "Checks for visible Ingredients declaration.",
-      "applies_when": { "product_category": ["food", "beverage"] },
-      "required_fields": ["ingredients"],
-      "failure_status": "POTENTIAL_NON_COMPLIANCE",
-      "uncertain_status": "NEEDS_REVIEW",
-      "legal_reference": "FSSAI Packaging & Labelling Regulations"
+      "field": "fssai_license",
+      "applicability": "REQUIRED",
+      "legal_reference": "FSSAI Regulations"
+    },
+    {
+      "field": "ingredients",
+      "applicability": "REQUIRED",
+      "legal_reference": "FSSAI Regulations"
+    },
+    {
+      "field": "nutrition_information",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "FSSAI Regulations"
+    },
+    {
+      "field": "allergens",
+      "applicability": "CONDITIONAL",
+      "legal_reference": "FSSAI Regulations"
     }
   ]
 }

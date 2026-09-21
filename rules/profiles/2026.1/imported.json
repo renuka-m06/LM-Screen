@@ -1,0 +1,17 @@
+{
+  "profile_id": "LM_IMPORTED_2026.1",
+  "name": "Imported Product",
+  "version": "2026.1",
+  "requirements": [
+    {
+      "field": "country_of_origin",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(n)"
+    },
+    {
+      "field": "importer_details",
+      "applicability": "REQUIRED",
+      "legal_reference": "Rule 6(1)(a)"
+    }
+  ]
+}

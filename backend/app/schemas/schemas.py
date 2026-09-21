@@ -45,6 +45,7 @@ class FindingSchema(BaseModel):
     finding_id: str
     scan_id: str
     field: str
+    applicability: str = "REQUIRED"
     observed_value: Optional[str] = None
     rule_reference: str
     status: str
