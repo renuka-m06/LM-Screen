@@ -62,6 +62,17 @@ class IdentityWarningSchema(BaseModel):
     barcode_decoded: Optional[str] = None
     explanation: str
 
+class ConsistencyCheckSchema(BaseModel):
+    check_id: str
+    scan_id: str
+    check_type: str
+    status: str
+    observed_values: Optional[Dict[str, Any]] = None
+    calculated_value: Optional[str] = None
+    explanation: str
+    evidence_ids: List[str] = []
+    created_at: str
+
 class DecisionTraceStepSchema(BaseModel):
     stage: str
     status: str
@@ -78,6 +89,7 @@ class ScanResponse(BaseModel):
     product_context: Dict[str, Any] = {}
     evidence: List[Dict[str, Any]] = []
     rule_results: List[Dict[str, Any]] = []
+    consistency_checks: List[Dict[str, Any]] = []
     review_factors: List[Dict[str, Any]] = []
     decision_trace: List[Dict[str, Any]] = []
     

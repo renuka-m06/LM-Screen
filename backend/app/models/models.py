@@ -110,6 +110,7 @@ class Scan(Base):
     decision_traces = relationship("DecisionTrace", back_populates="scan", cascade="all, delete-orphan")
     classifications = relationship("ProductClassification", back_populates="scan", cascade="all, delete-orphan")
     review_factors = relationship("ReviewFactor", back_populates="scan", cascade="all, delete-orphan")
+    consistency_checks = relationship("ConsistencyCheck", back_populates="scan", cascade="all, delete-orphan")
 
 class ImageQuality(Base):
     __tablename__ = "image_quality"
@@ -267,6 +268,21 @@ class RuleResultEvidence(Base):
 
     rule_result_id = Column(String, ForeignKey("rule_results.id"), primary_key=True)
     evidence_id = Column(String, ForeignKey("extracted_fields.id"), primary_key=True)
+
+class ConsistencyCheck(Base):
+    __tablename__ = "consistency_checks"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    scan_id = Column(String, ForeignKey("scans.id"), nullable=False)
+    check_type = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, index=True)
+    observed_values = Column(JSON, nullable=True)
+    calculated_value = Column(String, nullable=True)
+    explanation = Column(Text, nullable=False)
+    evidence_ids = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    scan = relationship("Scan", back_populates="consistency_checks")
 
 class ReviewFactor(Base):
     __tablename__ = "review_factors"

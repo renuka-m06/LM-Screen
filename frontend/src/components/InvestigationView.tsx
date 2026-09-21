@@ -4,7 +4,7 @@ import type { ScanResult, Finding } from '../types';
 import {
   ArrowLeft, Shield, AlertTriangle, CheckCircle2, HelpCircle,
   Users, Search, ClipboardList, TrendingUp, FileText, ChevronDown,
-  ChevronRight, Activity, Eye, Calendar, Package, Send, Lock
+  ChevronRight, Activity, Eye, Calendar, Package, Send, Lock, Link
 } from 'lucide-react';
 
 interface InvestigationViewProps {
@@ -486,6 +486,60 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                   ))}
                 </div>
               </div>
+
+              {/* Cross-Evidence Consistency Checks */}
+              {scanDetail?.consistency_checks && scanDetail.consistency_checks.length > 0 && (
+                <div className="glass-panel" style={{ padding: '20px' }}>
+                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Link size={16} color="var(--color-primary)" />
+                    Cross-Evidence Checks
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {scanDetail.consistency_checks.map((check: any) => (
+                      <div key={check.check_id} style={{
+                        padding: '14px 16px', borderRadius: '10px',
+                        background: check.status === 'CONSISTENT' ? 'rgba(127,182,133,0.06)' : check.status === 'REVIEW_REQUIRED' ? 'rgba(233,185,73,0.06)' : 'var(--color-subtle-bg)',
+                        border: `1px solid ${check.status === 'CONSISTENT' ? 'rgba(127,182,133,0.25)' : check.status === 'REVIEW_REQUIRED' ? 'rgba(233,185,73,0.25)' : 'var(--border-color)'}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {check.check_type.replace(/_/g, ' ')}
+                          </span>
+                          <span style={{
+                            fontSize: '0.7rem', fontWeight: 800, padding: '3px 10px', borderRadius: '12px',
+                            background: check.status === 'CONSISTENT' ? 'var(--accent-pass)' : check.status === 'REVIEW_REQUIRED' ? 'var(--accent-review)' : 'var(--color-subtle-bg)',
+                            color: check.status === 'CONSISTENT' || check.status === 'REVIEW_REQUIRED' ? '#fff' : 'var(--text-muted)'
+                          }}>
+                            {check.status}
+                          </span>
+                        </div>
+                        
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '8px' }}>
+                          {check.explanation}
+                        </p>
+
+                        {check.observed_values && Object.keys(check.observed_values).length > 0 && (
+                          <div style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: '6px', border: '1px dashed var(--border-color)', fontSize: '0.75rem' }}>
+                            <div style={{ color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600 }}>OBSERVED:</div>
+                            {Object.entries(check.observed_values).map(([k, v]) => (
+                              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>{k}:</span>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{String(v)}</span>
+                              </div>
+                            ))}
+                            {check.calculated_value && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Calculated:</span>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{check.calculated_value}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
                 {/* Top Issues */}

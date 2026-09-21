@@ -61,6 +61,18 @@ export interface DecisionTraceStep {
   detail?: string;
 }
 
+export interface ConsistencyCheck {
+  check_id: string;
+  scan_id: string;
+  check_type: string;
+  status: string; // CONSISTENT | INCONSISTENT | REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE
+  observed_values?: Record<string, any>;
+  calculated_value?: string;
+  explanation: string;
+  evidence_ids: string[];
+  created_at: string;
+}
+
 export interface ImageQuality {
   status: string; // ACCEPTABLE | PARTIALLY_USABLE | RETAKE_REQUIRED
   quality_label?: string;
@@ -87,6 +99,7 @@ export interface ScanResult {
   product_context: any;
   evidence: any[];
   rule_results: RuleCheck[];
+  consistency_checks?: ConsistencyCheck[];
   review_factors: any[];
   decision_trace: DecisionTraceStep[];
   

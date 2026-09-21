@@ -11,6 +11,7 @@ from .evidence_service import EvidenceService
 
 from rules.engine import DeterministicRuleEngine
 from rules.verdict import VerdictAggregator
+from ai.consistency_engine import ConsistencyEngine
 
 class ScreeningService:
     """
@@ -25,6 +26,7 @@ class ScreeningService:
         self.evidence = EvidenceService()
         
         self.rule_engine = DeterministicRuleEngine()
+        self.consistency_engine = ConsistencyEngine()
         self.verdict_aggregator = VerdictAggregator()
 
     def process_image(self, image_np: np.ndarray, user_hints: Dict[str, str] = None) -> Dict[str, Any]:
@@ -101,6 +103,10 @@ class ScreeningService:
         rule_traces = self.rule_engine.evaluate(extracted_fields_legacy, context, q_result.get("raw_metrics", {}))
         trace.append({"stage": "RULE_EVALUATION", "status": "OK", "detail": f"Evaluated {len(rule_traces)} rules"})
 
+        # 7b. Cross-Evidence Consistency Engine
+        consistency_checks = self.consistency_engine.evaluate(evidence_list, barcode_result, context)
+        trace.append({"stage": "CONSISTENCY_EVALUATION", "status": "OK", "detail": f"Evaluated {len(consistency_checks)} consistency checks"})
+
         # 8. Verdict Aggregation
         verdict = self.verdict_aggregator.aggregate(rule_traces, q_result.get("raw_metrics", {}), barcode_result.get("raw_metrics", {}), context, [])
         trace.append({"stage": "VERDICT", "status": verdict.get("status"), "detail": f"Confidence: {verdict.get('screening_confidence')}"})
@@ -115,6 +121,7 @@ class ScreeningService:
             "product_context": class_result,
             "evidence": evidence_list,
             "rule_results": rule_traces,
+            "consistency_checks": consistency_checks,
             "verdict": verdict,
             "decision_trace": trace,
             "processing_time_ms": duration_ms

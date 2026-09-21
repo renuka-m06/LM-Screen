@@ -280,6 +280,19 @@ async def process_scan(
                     evidence_id=f_id
                 )
                 db.add(link)
+                
+        # 8b. Save Consistency Checks
+        for cc in pipeline_result.get("consistency_checks", []):
+            db_cc = ConsistencyCheck(
+                scan_id=scan_db.id,
+                check_type=cc["check_type"],
+                status=cc["status"],
+                observed_values=cc.get("observed_values"),
+                calculated_value=cc.get("calculated_value"),
+                explanation=cc["explanation"],
+                evidence_ids=cc.get("evidence_ids", [])
+            )
+            db.add(db_cc)
 
         # 9. Save Review Factors
         for rr in verdict.get("review_reasons", []):
@@ -335,6 +348,7 @@ async def process_scan(
         product_context=context,
         evidence=evidence_list,
         rule_results=verdict.get("checks_performed", []),
+        consistency_checks=pipeline_result.get("consistency_checks", []),
         review_factors=[{"reason": r} for r in verdict.get("review_reasons", [])] + identity_warnings,
         decision_trace=decision_trace,
         
@@ -739,6 +753,17 @@ def get_scan(scan_id: str, db: Session = Depends(get_db)):
         product_context={},
         evidence=evidence_list,
         rule_results=checks_performed,
+        consistency_checks=[{
+            "check_id": c.id,
+            "scan_id": c.scan_id,
+            "check_type": c.check_type,
+            "status": c.status,
+            "observed_values": c.observed_values,
+            "calculated_value": c.calculated_value,
+            "explanation": c.explanation,
+            "evidence_ids": c.evidence_ids,
+            "created_at": c.created_at.isoformat()
+        } for c in scan.consistency_checks] if hasattr(scan, 'consistency_checks') else [],
         review_factors=[{"reason": w["explanation"]} for w in identity_warnings],
         decision_trace=traces,
         
