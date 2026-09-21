@@ -9,6 +9,69 @@ from backend.app.models.models import Product, Scan, CitizenReport, ProductClust
 router = APIRouter(prefix="/products", tags=["Product Intelligence"])
 
 
+@router.get("/clusters/{cluster_id}")
+def get_cluster(cluster_id: str, db: Session = Depends(get_db)):
+    cluster = db.query(ProductCluster).filter(ProductCluster.id == cluster_id).first()
+    if not cluster:
+        raise HTTPException(status_code=404, detail="Cluster not found.")
+        
+    scans = db.query(Scan).filter(Scan.cluster_id == cluster_id).all()
+    reports = db.query(CitizenReport).filter(CitizenReport.scan_id.in_([s.id for s in scans]) | (CitizenReport.product_id == cluster.product_id)).all()
+    reviews = db.query(OfficerReview).filter(OfficerReview.cluster_id == cluster_id).all()
+    
+    # MRP Consistency
+    mrp_obs = {}
+    for scan in scans:
+        for ev in scan.extracted_fields:
+            if ev.field_name == "mrp" and ev.normalized_value:
+                mrp_obs[ev.normalized_value] = mrp_obs.get(ev.normalized_value, 0) + 1
+
+    # Findings/Issues aggregation
+    issues = {}
+    for scan in scans:
+        for r in scan.rule_results:
+            if r.status in ["POTENTIAL_NON_COMPLIANCE", "NEEDS_REVIEW"]:
+                issues[r.rule_name] = issues.get(r.rule_name, 0) + 1
+
+    return {
+        "cluster_id": cluster.id,
+        "product_id": cluster.product_id,
+        "gtin": cluster.gtin,
+        "brand": cluster.brand,
+        "product_name": cluster.product_name,
+        "variant": cluster.variant,
+        "net_quantity": cluster.net_quantity,
+        "match_method": cluster.match_method,
+        "match_strength": cluster.match_strength,
+        "report_count": cluster.report_count,
+        "status": cluster.status,
+        "scans": [
+            {
+                "scan_id": s.id,
+                "timestamp": s.timestamp.isoformat(),
+                "status": s.status,
+                "duplicate_of_scan_id": s.duplicate_of_scan_id
+            } for s in scans
+        ],
+        "citizen_reports": [
+            {
+                "report_id": r.id,
+                "issue_category": r.issue_category,
+                "created_at": r.created_at.isoformat()
+            } for r in reports
+        ],
+        "mrp_observations": [{"value": k, "count": v} for k, v in mrp_obs.items()],
+        "potential_issues": [{"issue": k, "count": v} for k, v in issues.items()],
+        "audit_trail": [
+            {
+                "review_id": rev.id,
+                "decision": rev.decision,
+                "rationale": rev.rationale,
+                "timestamp": rev.created_at.isoformat()
+            } for rev in reviews
+        ]
+    }
+
 @router.get("/{product_id}/intelligence")
 def get_product_intelligence(product_id: str, db: Session = Depends(get_db)):
     """
@@ -97,7 +160,7 @@ def get_product_intelligence(product_id: str, db: Session = Depends(get_db)):
             ]
             issue_clusters.append({
                 "cluster_id": c.id,
-                "issue_type": c.issue_type,
+                "match_method": c.match_method,
                 "priority_score": round(c.priority_score, 2),
                 "citizen_reports": c.report_count,
                 "ai_flags": c.ai_flag_count,
@@ -122,7 +185,7 @@ def get_product_intelligence(product_id: str, db: Session = Depends(get_db)):
         ]
         issue_clusters.append({
             "cluster_id": f"cluster_{product.id[:8]}",
-            "issue_type": "Identity & Label Compliance",
+            "match_method": "VIRTUAL_CLUSTER",
             "priority_score": 0.85 if len(all_reviews) > 0 else 0.20,
             "citizen_reports": len(citizen_signals),
             "ai_flags": len(scans),
@@ -138,7 +201,7 @@ def get_product_intelligence(product_id: str, db: Session = Depends(get_db)):
 
     total_scans = len(scan_history)
     risk_level = "LOW"
-    if potential_count > 0 or any(c["issue_type"] in ["Suspicious MRP", "Label Tampering", "Information Mismatch"] for c in issue_clusters):
+    if potential_count > 0:
         risk_level = "ELEVATED"
     if potential_count >= 2 or any(c["priority_score"] > 7.0 for c in issue_clusters):
         risk_level = "HIGH"

@@ -10,6 +10,7 @@ import {
 interface InvestigationViewProps {
   productId?: string;
   scanId?: string;
+  clusterId?: string;
   userRole?: string;
   onClose: () => void;
 }
@@ -52,8 +53,9 @@ const EvidenceWeightBadge: React.FC<{ weight: string }> = ({ weight }) => {
   );
 };
 
-export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId, scanId, userRole = 'OFFICER', onClose }) => {
+export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId, scanId, clusterId, userRole = 'OFFICER', onClose }) => {
   const [intel, setIntel] = useState<any>(null);
+  const [clusterIntel, setClusterIntel] = useState<any>(null);
   const [scanDetail, setScanDetail] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,10 +99,23 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
     setLoading(true);
     setError(null);
     setIntel(null);
-    getProductIntelligence(selectedProductId)
-      .then(data => { setIntel(data); setLoading(false); })
-      .catch(err => { setError(err.message); setLoading(false); });
+    import('../api').then(({ getProductIntelligence }) => {
+      getProductIntelligence(selectedProductId)
+        .then(data => { setIntel(data); setLoading(false); })
+        .catch(err => { setError(err.message); setLoading(false); });
+    });
   }, [selectedProductId]);
+
+  // Load cluster intelligence if clusterId is provided
+  useEffect(() => {
+    if (!clusterId) return;
+    setLoading(true);
+    import('../api').then(({ getClusterIntelligence }) => {
+      getClusterIntelligence(clusterId)
+        .then(data => { setClusterIntel(data); setLoading(false); })
+        .catch(err => { console.error(err); setLoading(false); });
+    });
+  }, [clusterId]);
 
   const handleReviewSubmit = async () => {
     if (!rationale.trim()) {
@@ -248,6 +263,8 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                 { id: 'MARK_UNDER_INVESTIGATION', label: 'MARK UNDER INVESTIGATION', color: 'var(--accent-review)' },
                 { id: 'REQUEST_MORE_EVIDENCE', label: 'REQUEST MORE EVIDENCE', color: 'var(--color-primary)' },
                 { id: 'CONFIRM', label: 'CONFIRM NON-COMPLIANCE', color: 'var(--accent-potential)' },
+                { id: 'EVIDENCE_SUFFICIENT', label: 'CASE RESOLVED: EVIDENCE SUFFICIENT', color: 'var(--accent-pass)' },
+                { id: 'REQUIRES_FURTHER_REVIEW', label: 'REQUIRES FURTHER REVIEW', color: 'var(--accent-review)' },
                 { id: 'REJECT', label: 'REJECT / DISMISS', color: 'var(--accent-pass)' },
               ].map(act => (
                 <button
@@ -406,6 +423,38 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
             </div>
           </div>
 
+          {/* Cluster Intelligence Banner */}
+          {clusterIntel && (
+            <div className="glass-panel" style={{ padding: '20px 24px', marginBottom: '20px', border: '2px solid var(--color-primary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <Activity size={18} color="var(--color-primary)" />
+                <h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--color-primary)' }}>Product Cluster Intelligence</h4>
+              </div>
+              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ background: 'var(--color-subtle-bg)', padding: '12px', borderRadius: '8px', minWidth: '150px' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Observations</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{clusterIntel.scans.length + clusterIntel.citizen_reports.length}</div>
+                </div>
+                <div style={{ background: 'var(--color-subtle-bg)', padding: '12px', borderRadius: '8px', minWidth: '150px' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Citizen Reports</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{clusterIntel.report_count}</div>
+                </div>
+                {clusterIntel.mrp_observations && Object.keys(clusterIntel.mrp_observations).length > 0 && (
+                  <div style={{ background: 'var(--color-subtle-bg)', padding: '12px', borderRadius: '8px', flex: 1 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>MRP Observations (Conflicts Detected)</div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {Object.entries(clusterIntel.mrp_observations).map(([mrp, count]) => (
+                        <span key={mrp} style={{ background: 'rgba(233,185,73,0.15)', color: 'var(--accent-review)', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700, border: '1px solid rgba(233,185,73,0.3)' }}>
+                          {mrp} → {count as number}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Tab Navigation */}
           <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '4px', width: 'fit-content' }}>
             {TABS.map(tab => (
@@ -431,6 +480,36 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
           {activeTab === 'overview' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                
+                {/* Product Identity Card */}
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', gap: '20px', alignItems: 'center' }}>
+                  {scanDetail?.image_hash ? (
+                    <img src={`/api/images/${scanDetail.image_hash}`} alt="Product Evidence" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '12px', border: '1px solid var(--border-color)' }} />
+                  ) : (
+                    <div style={{ width: '120px', height: '120px', background: 'var(--color-subtle-bg)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                      <Package size={40} />
+                    </div>
+                  )}
+                  <div>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>Product Identity Evidence</h4>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>This identity is derived directly from the visual evidence and OCR extraction.</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '6px 12px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Brand Name</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{scanDetail?.evidence?.find(e => e.field === 'brand_name')?.value || 'Unknown'}</span>
+                      </div>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '6px 12px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Product Name</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{scanDetail?.evidence?.find(e => e.field === 'product_name')?.value || 'Unknown'}</span>
+                      </div>
+                      <div style={{ background: 'var(--color-subtle-bg)', padding: '6px 12px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Net Quantity</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{scanDetail?.evidence?.find(e => e.field === 'net_quantity')?.value || 'Unknown'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {scanDetail?.product_context && (
                   <div className="glass-panel" style={{ padding: '20px' }}>
                     <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -873,10 +952,35 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
             <div className="glass-panel" style={{ padding: '20px' }}>
               <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <ClipboardList size={16} color="var(--color-primary)" />
-                Officer Action Audit Trail
+                Officer Action & System Audit Trail
               </h4>
+              
+              {/* Scan Decision Trace */}
+              {scanDetail?.decision_trace && scanDetail.decision_trace.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase' }}>Current Scan Execution Trace</h5>
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
+                    {scanDetail.decision_trace.map((step, idx) => (
+                      <div key={idx} style={{
+                        padding: '12px 16px',
+                        background: idx % 2 === 0 ? 'var(--bg-card)' : 'var(--color-subtle-bg)',
+                        borderTop: idx > 0 ? '1px solid var(--border-color)' : 'none',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>{step.stage}</span>
+                          {step.detail && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{step.detail}</span>}
+                        </div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: step.status === 'OK' || step.status === 'PASS' || step.status === 'CORRECTED' ? 'rgba(127,182,133,0.1)' : 'rgba(233,185,73,0.1)', color: step.status === 'OK' || step.status === 'PASS' || step.status === 'CORRECTED' ? 'var(--accent-pass)' : 'var(--accent-review)' }}>
+                          {step.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              {intel.issue_clusters.length === 0 ? (
+              {intel.issue_clusters.length === 0 && (!scanDetail?.decision_trace || scanDetail.decision_trace.length === 0) ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                   <ClipboardList size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
                   <p>No issue clusters or officer actions on record.</p>

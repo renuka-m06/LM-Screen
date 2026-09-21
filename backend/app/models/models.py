@@ -104,6 +104,10 @@ class Scan(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
 
     product = relationship("Product", back_populates="scans")
+    cluster_id = Column(String, ForeignKey("product_clusters.id"), nullable=True)
+    cluster = relationship("ProductCluster", back_populates="scans")
+    duplicate_of_scan_id = Column(String, ForeignKey("scans.id"), nullable=True)
+    
     ocr_results = relationship("OCRResult", back_populates="scan", cascade="all, delete-orphan")
     extracted_fields = relationship("ExtractedField", back_populates="scan", cascade="all, delete-orphan")
     rule_results = relationship("RuleResult", back_populates="scan", cascade="all, delete-orphan")
@@ -348,19 +352,33 @@ class Investigation(Base):
     product = relationship("Product", back_populates="investigations")
 
 class ProductCluster(Base):
-    """Legacy ProductCluster wrapper, kept for backward compatibility with Officer routes."""
+    """Product/Case Cluster for aggregating multiple evidence submissions relating to the same identity."""
     __tablename__ = "product_clusters"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    product_id = Column(String, ForeignKey("products.id"), nullable=False)
-    issue_type = Column(String, nullable=False)
+    product_id = Column(String, ForeignKey("products.id"), nullable=True) # Canonical product if confirmed
+    
+    # Deterministic Identity representation
+    gtin = Column(String, nullable=True, index=True)
+    brand = Column(String, nullable=True)
+    product_name = Column(String, nullable=True)
+    variant = Column(String, nullable=True)
+    net_quantity = Column(String, nullable=True)
+
+    match_method = Column(String, nullable=True) # e.g. GTIN_MATCH, BRAND_PRODUCT_MATCH, INITIAL
+    match_strength = Column(String, default="NO_MATCH") # STRONG_MATCH, POSSIBLE_MATCH, NO_MATCH, REVIEW_REQUIRED
+    
+    # Aggregated metrics
     report_count = Column(Integer, default=1)
     ai_flag_count = Column(Integer, default=0)
     priority_score = Column(Float, default=0.0)
-    status = Column(String, default="UNVERIFIED")
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    status = Column(String, default="REVIEW_REQUIRED")
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     product = relationship("Product", back_populates="clusters")
+    scans = relationship("Scan", back_populates="cluster")
     reviews = relationship("OfficerReview", back_populates="cluster")
 
 class OfficerReview(Base):

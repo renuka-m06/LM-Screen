@@ -12,6 +12,7 @@ export function App() {
   const [userRole, setUserRole] = useState<'CITIZEN' | 'OFFICER'>('CITIZEN');
   const [investigatingProductId, setInvestigatingProductId] = useState<string | undefined>(undefined);
   const [investigatingScanId, setInvestigatingScanId] = useState<string | undefined>(undefined);
+  const [investigatingClusterId, setInvestigatingClusterId] = useState<string | undefined>(undefined);
   const [prefillSignalContext, setPrefillSignalContext] = useState<{
     related_scan_id?: string;
     product_name?: string;
@@ -23,14 +24,16 @@ export function App() {
     skipped_fields?: Record<string, string>;
   } | null>(null);
 
-  const handleInvestigate = (productId?: string, scanId?: string) => {
+  const handleInvestigate = (productId?: string, scanId?: string, clusterId?: string) => {
     setInvestigatingProductId(productId);
     setInvestigatingScanId(scanId);
+    setInvestigatingClusterId(clusterId);
   };
 
   const handleCloseInvestigation = () => {
     setInvestigatingProductId(undefined);
     setInvestigatingScanId(undefined);
+    setInvestigatingClusterId(undefined);
   };
 
   /**
@@ -118,10 +121,11 @@ export function App() {
 
       <main>
         {/* Investigation view takes priority when active */}
-        {investigatingProductId !== undefined || investigatingScanId !== undefined ? (
+        {investigatingProductId !== undefined || investigatingScanId !== undefined || investigatingClusterId !== undefined ? (
           <InvestigationView
             productId={investigatingProductId}
             scanId={investigatingScanId}
+            clusterId={investigatingClusterId}
             userRole={userRole}
             onClose={handleCloseInvestigation}
           />
@@ -135,7 +139,7 @@ export function App() {
               />
             )}
             {activeTab === 'citizen' && <CitizenPortal prefillContext={prefillSignalContext} />}
-            {activeTab === 'officer' && <OfficerDashboard />}
+            {activeTab === 'officer' && <OfficerDashboard onInvestigate={handleInvestigate} />}
             {activeTab === 'dashboard' && <AnalyticsDashboard />}
           </>
         )}

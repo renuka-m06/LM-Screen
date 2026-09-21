@@ -26,12 +26,17 @@ def get_priority_queue(db: Session = Depends(get_db)):
             "severity": round(0.10 * 0.80, 3),
             "recency": round(0.10 * 1.00, 3)
         }
+        
+        display_name = c.product_name or (prod.product_name if prod else "Unknown Commodity")
+        if c.brand:
+            display_name = f"{c.brand} {display_name}"
+            
         queue.append({
             "cluster_id": c.id,
             "product_id": c.product_id,
-            "product_name": prod.product_name if prod else "Unknown Commodity",
-            "gtin": prod.gtin if prod else None,
-            "issue_type": c.issue_type,
+            "product_name": display_name,
+            "gtin": c.gtin or (prod.gtin if prod else None),
+            "match_strength": c.match_strength,
             "priority_score": total_score,
             "priority_label": "HIGH" if total_score >= 0.7 else "MEDIUM" if total_score >= 0.4 else "LOW",
             "citizen_reports_count": c.report_count,

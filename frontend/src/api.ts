@@ -144,6 +144,14 @@ export async function getProductIntelligence(productId: string): Promise<any> {
   return response.json();
 }
 
+export async function getClusterIntelligence(clusterId: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/products/clusters/${clusterId}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch cluster intelligence.');
+  }
+  return response.json();
+}
+
 export async function listProducts(): Promise<any[]> {
   const response = await fetch(`${API_BASE_URL}/products`);
   if (!response.ok) {

@@ -43,9 +43,9 @@ def submit_report(payload: ReportCreate, db: Session = Depends(get_db)):
     db.refresh(report)
 
     # 4. Trigger issue clustering update if product identified
-    if db_product:
+    if db_product or payload.scan_id:
         clustering = ClusteringEngine(db)
-        clustering.update_cluster_for_product(db_product.id, payload.issue_category)
+        clustering.update_cluster_from_report(scan_id=payload.scan_id, product_id=db_product.id if db_product else None)
 
     return ReportResponse(
         report_id=report.id,

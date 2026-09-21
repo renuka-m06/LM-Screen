@@ -334,6 +334,13 @@ async def process_scan(
         db.add(db_trace_final)
 
         db.commit()
+        
+        # 11. Post-process Clustering
+        from backend.app.services.identity_matcher import IdentityMatcher
+        matcher = IdentityMatcher(db)
+        cluster = matcher.process_scan(scan_db.id)
+        if cluster:
+            print(f"Assigned Scan {scan_db.id} to Cluster {cluster.id} (Match: {cluster.match_method})")
 
     except Exception as e:
         db.rollback()
@@ -856,7 +863,12 @@ def correct_evidence(
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
 
-    from backend.app.models.models import EvidenceCorrection, DecisionTrace, User
+    from backend.app.models.models import EvidenceCorrection, DecisionTrace, User, ConsistencyCheck, RuleResult
+    from ai.consistency_engine import ConsistencyEngine
+    from ai.evidence_quality import EvidenceQualityEvaluator
+    from rules.engine import DeterministicRuleEngine
+    from rules.verdict import VerdictAggregator
+    import datetime
     
     officer = db.query(User).filter(User.role == "OFFICER").first()
     if not officer:
@@ -880,6 +892,8 @@ def correct_evidence(
         db.add(correction)
         
         evidence.normalized_value = payload.get("corrected_value")
+        evidence.evidence_state = "MANUALLY_VERIFIED"
+        evidence.quality_reasons = ["Officer manually verified and corrected this evidence."]
         
         trace = DecisionTrace(
             scan_id=scan_id,
@@ -889,6 +903,81 @@ def correct_evidence(
             duration_ms=0.0
         )
         db.add(trace)
+        
+        # --- RECALCULATION ---
+        context = {
+            "product_category": scan.classifications[0].category if getattr(scan, "classifications", None) and len(scan.classifications) > 0 else "general",
+        }
+        
+        evidence_list = []
+        for ev in scan.extracted_fields:
+            evidence_list.append({
+                "field": ev.field_name,
+                "value": ev.normalized_value,
+                "found": ev.found,
+                "confidence": ev.confidence,
+                "evidence_state": ev.evidence_state,
+                "quality_reasons": ev.quality_reasons,
+                "ocr_evidence_ids": ev.ocr_evidence_ids,
+                "extraction_method": ev.extraction_method,
+            })
+            
+        ocr_tokens = [{"id": t.token_id, "confidence": t.confidence, "text": t.text} for t in scan.ocr_results]
+        q_result = {"usable": True, "status": scan.quality_status, "raw_metrics": {}}
+        barcode_result = {}
+        
+        # 1. Consistency
+        ce = ConsistencyEngine()
+        consistency_checks = ce.evaluate(evidence_list, barcode_result, context)
+        
+        # 2. Quality (will preserve MANUALLY_VERIFIED)
+        eq = EvidenceQualityEvaluator()
+        evidence_list = eq.evaluate_evidence(evidence_list, ocr_tokens, q_result, consistency_checks, barcode_result)
+        
+        for ev_dict in evidence_list:
+            db_ev = next((e for e in scan.extracted_fields if e.field_name == ev_dict["field"]), None)
+            if db_ev:
+                db_ev.evidence_state = ev_dict["evidence_state"]
+                db_ev.quality_reasons = ev_dict["quality_reasons"]
+                
+        # 3. Rule Engine
+        extracted_fields_legacy = { e["field"]: e for e in evidence_list }
+        re = DeterministicRuleEngine()
+        rule_traces = re.evaluate(extracted_fields_legacy, context, q_result)
+        
+        # 4. Verdict
+        va = VerdictAggregator()
+        verdict = va.aggregate(rule_traces, {}, {}, context, [])
+        scan.status = verdict.get("status", scan.status)
+        scan.screening_confidence = verdict.get("screening_confidence", scan.screening_confidence)
+        scan.public_label = verdict.get("public_label", scan.public_label)
+        
+        # Cleanup old checks and rules
+        db.query(ConsistencyCheck).filter(ConsistencyCheck.scan_id == scan_id).delete()
+        db.query(RuleResult).filter(RuleResult.scan_id == scan_id).delete()
+        
+        for c in consistency_checks:
+            db.add(ConsistencyCheck(scan_id=scan_id, check_type=c["check_type"], status=c["status"], explanation=c["explanation"], observed_values=c.get("observed_values", {})))
+            
+        for rt in rule_traces:
+            db.add(RuleResult(
+                scan_id=scan_id, 
+                rule_id=rt["rule_id"], 
+                rule_name=rt["rule_id"], 
+                status=rt["status"], 
+                reason=rt["reason"], 
+                applicability=rt["applicability"], 
+                evaluated_at=datetime.datetime.utcnow()
+            ))
+
+        trace_recalc = DecisionTrace(
+            scan_id=scan_id,
+            stage="RECALCULATION",
+            input_summary={"corrected_field": evidence.field_name},
+            output_summary={"status": scan.status, "detail": "Re-evaluated consistency and rules based on officer correction."},
+            duration_ms=0.0
+        )
+        db.add(trace_recalc)
         
         db.commit()
     except Exception as e:

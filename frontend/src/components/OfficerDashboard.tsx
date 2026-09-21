@@ -3,7 +3,7 @@ import { getOfficerQueue, submitOfficerReview } from '../api';
 import type { PriorityQueueItem } from '../types';
 import { Shield } from 'lucide-react';
 
-export const OfficerDashboard: React.FC = () => {
+export const OfficerDashboard: React.FC<{ onInvestigate?: (productId?: string, scanId?: string, clusterId?: string) => void }> = ({ onInvestigate }) => {
   const [queue, setQueue] = useState<PriorityQueueItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedCluster, setSelectedCluster] = useState<PriorityQueueItem | null>(null);
@@ -56,16 +56,16 @@ export const OfficerDashboard: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
-              <Shield size={22} color="var(--accent-review)" /> Operational Prioritization Queue
+              <Shield size={22} color="var(--accent-review)" /> Officer Intelligence Workbench
             </h2>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Multi-factor score based on Citizen Signals, AI Flags, and Evidence Quality.
+              Evidence-driven investigation and verification queue.
             </p>
           </div>
 
           {/* Status Filter Tabs */}
           <div style={{ display: 'flex', gap: '8px', background: 'var(--color-subtle-bg)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-            {['ALL', 'UNVERIFIED', 'CONFIRM', 'REJECT', 'MARK_UNDER_INVESTIGATION'].map(st => (
+            {['ALL', 'UNVERIFIED', 'REVIEW_REQUIRED', 'MARK_UNDER_INVESTIGATION', 'CONFIRM', 'REJECT'].map(st => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -85,20 +85,20 @@ export const OfficerDashboard: React.FC = () => {
         {!loading && (
           <div className="grid-responsive" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
             <div className="glass-card" style={{ padding: '16px', borderLeft: '3px solid var(--color-primary)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Active Priority Cases</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.length}</div>
-            </div>
-            <div className="glass-card" style={{ padding: '16px', borderLeft: '3px solid var(--color-primary)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Total Citizen Signals</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.reduce((acc, i) => acc + i.citizen_reports_count, 0)}</div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>New Cases</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.filter(i => i.status === 'UNVERIFIED').length}</div>
             </div>
             <div className="glass-card" style={{ padding: '16px', borderLeft: '3px solid var(--accent-potential)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Total AI Flags</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.reduce((acc, i) => acc + i.ai_flags_count, 0)}</div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Review Required</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.filter(i => i.status === 'REVIEW_REQUIRED').length}</div>
             </div>
             <div className="glass-card" style={{ padding: '16px', borderLeft: '3px solid var(--accent-review)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Under Investigation</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Under Review</span>
               <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.filter(i => i.status === 'MARK_UNDER_INVESTIGATION').length}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '16px', borderLeft: '3px solid var(--accent-pass)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>Resolved</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{queue.filter(i => i.status === 'CONFIRM' || i.status === 'REJECT').length}</div>
             </div>
           </div>
         )}
@@ -163,7 +163,13 @@ export const OfficerDashboard: React.FC = () => {
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       <button
-                        onClick={() => setSelectedCluster(item)}
+                        onClick={() => {
+                          if (onInvestigate) {
+                            onInvestigate(item.product_id, undefined, item.cluster_id);
+                          } else {
+                            setSelectedCluster(item);
+                          }
+                        }}
                         className="btn-secondary"
                         style={{ padding: '6px 12px', fontSize: '0.78rem' }}
                       >

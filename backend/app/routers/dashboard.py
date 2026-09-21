@@ -25,9 +25,9 @@ def get_dashboard_statistics(db: Session = Depends(get_db)):
         prod = db.query(Product).filter(Product.id == c.product_id).first()
         priority_products.append({
             "cluster_id": c.id,
-            "product_name": prod.product_name if prod else "Unknown",
-            "gtin": prod.gtin if prod else None,
-            "issue_type": c.issue_type,
+            "product_name": c.product_name or (prod.product_name if prod else "Unknown"),
+            "gtin": c.gtin or (prod.gtin if prod else None),
+            "match_strength": c.match_strength,
             "priority_score": round(c.priority_score, 2),
             "priority_label": "HIGH" if c.priority_score >= 0.7 else "MEDIUM" if c.priority_score >= 0.4 else "LOW",
             "citizen_reports": c.report_count,
