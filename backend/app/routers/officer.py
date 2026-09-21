@@ -10,22 +10,16 @@ router = APIRouter(prefix="/officer", tags=["Officer Operations"])
 
 @router.get("/queue")
 def get_priority_queue(db: Session = Depends(get_db)):
-    clusters = db.query(ProductCluster).order_by(ProductCluster.priority_score.desc()).all()
+    # Sort by Priority Class (PRIORITY_REVIEW first, then STANDARD, then INSUFFICIENT)
+    clusters = db.query(ProductCluster).all()
+    
+    # Python-side sort to map classes
+    priority_order = {"PRIORITY_REVIEW": 3, "STANDARD_REVIEW": 2, "EVIDENCE_INSUFFICIENT": 1}
+    clusters.sort(key=lambda c: (priority_order.get(c.priority_class, 0), c.updated_at), reverse=True)
     queue = []
     for c in clusters:
         prod = db.query(Product).filter(Product.id == c.product_id).first()
-        # Build explainable priority breakdown
-        total_score = round(c.priority_score, 2)
-        norm_reports = min(c.report_count / 20.0, 1.0)
-        norm_ai = min(c.ai_flag_count / 10.0, 1.0)
-        priority_breakdown = {
-            "citizen_signals": round(0.25 * norm_reports, 3),
-            "ai_flags": round(0.20 * norm_ai, 3),
-            "confirmed_history": round(0.20 * 0.0, 3),  # default no confirmed
-            "evidence_quality": round(0.15 * 0.90, 3),
-            "severity": round(0.10 * 0.80, 3),
-            "recency": round(0.10 * 1.00, 3)
-        }
+        priority_breakdown = c.priority_reasons or []
         
         display_name = c.product_name or (prod.product_name if prod else "Unknown Commodity")
         if c.brand:
@@ -37,11 +31,14 @@ def get_priority_queue(db: Session = Depends(get_db)):
             "product_name": display_name,
             "gtin": c.gtin or (prod.gtin if prod else None),
             "match_strength": c.match_strength,
-            "priority_score": total_score,
-            "priority_label": "HIGH" if total_score >= 0.7 else "MEDIUM" if total_score >= 0.4 else "LOW",
+            "priority_score": c.priority_score, # Legacy
+            "priority_class": c.priority_class,
+            "priority_label": c.priority_class.replace("_", " ") if c.priority_class else "UNKNOWN",
+            "evidence_strength": c.evidence_strength,
+            "actionability_state": c.actionability_state,
             "citizen_reports_count": c.report_count,
             "ai_flags_count": c.ai_flag_count,
-            "priority_breakdown": priority_breakdown,
+            "priority_reasons": priority_breakdown,
             "recency": c.updated_at.strftime("%Y-%m-%d %H:%M"),
             "status": c.status
         })

@@ -38,4 +38,12 @@ data/*
 
 # Temporary Scratch Files
 scratch/
+scratch_out*.txt
 
+# Test / demo databases (never commit)
+test_evidence.db
+lm_screen.db
+
+# ML model weights (large binary files)
+models/*.pt
+models/*.pth

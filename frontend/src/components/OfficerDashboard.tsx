@@ -112,8 +112,8 @@ export const OfficerDashboard: React.FC<{ onInvestigate?: (productId?: string, s
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '0.78rem', textTransform: 'uppercase' }}>
                   <th style={{ padding: '12px 16px' }}>Product Commodity</th>
-                  <th style={{ padding: '12px 16px' }}>Issue Type</th>
-                  <th style={{ padding: '12px 16px' }}>Operational Priority Score</th>
+                  <th style={{ padding: '12px 16px' }}>Priority Class</th>
+                  <th style={{ padding: '12px 16px' }}>Actionability</th>
                   <th style={{ padding: '12px 16px' }}>Signals</th>
                   <th style={{ padding: '12px 16px' }}>Status</th>
                   <th style={{ padding: '12px 16px' }}>Action</th>
@@ -126,28 +126,33 @@ export const OfficerDashboard: React.FC<{ onInvestigate?: (productId?: string, s
                       {item.product_name}
                       <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>GTIN: {item.gtin || 'N/A'}</span>
                     </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--accent-review)', fontWeight: 600 }}>{item.issue_type}</td>
                     <td style={{ padding: '14px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '60px', height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ width: `${item.priority_score * 100}%`, height: '100%', background: item.priority_score > 0.7 ? 'var(--accent-potential)' : item.priority_score > 0.4 ? 'var(--accent-review)' : 'var(--color-primary)' }} />
-                        </div>
-                        <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{item.priority_score.toFixed(2)}</span>
                         <span style={{
-                          padding: '2px 7px', borderRadius: '10px', fontSize: '0.68rem', fontWeight: 700,
-                          background: (item as any).priority_label === 'HIGH' ? 'rgba(233,137,126,0.15)' : (item as any).priority_label === 'MEDIUM' ? 'rgba(233,185,73,0.15)' : 'rgba(127,182,133,0.15)',
-                          color: (item as any).priority_label === 'HIGH' ? 'var(--accent-potential)' : (item as any).priority_label === 'MEDIUM' ? 'var(--accent-review)' : 'var(--accent-pass)'
-                        }} title={(item as any).priority_breakdown ? `Signals: ${(item as any).priority_breakdown.citizen_signals} | AI: ${(item as any).priority_breakdown.ai_flags} | Quality: ${(item as any).priority_breakdown.evidence_quality} | Severity: ${(item as any).priority_breakdown.severity} | Recency: ${(item as any).priority_breakdown.recency}` : ''}>
-                          {(item as any).priority_label || 'N/A'}
+                          padding: '4px 10px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700,
+                          background: item.priority_class === 'PRIORITY_REVIEW' ? 'rgba(233,137,126,0.15)' : item.priority_class === 'STANDARD_REVIEW' ? 'rgba(233,185,73,0.15)' : 'rgba(127,182,133,0.15)',
+                          color: item.priority_class === 'PRIORITY_REVIEW' ? 'var(--accent-potential)' : item.priority_class === 'STANDARD_REVIEW' ? 'var(--accent-review)' : 'var(--accent-pass)'
+                        }}>
+                          {item.priority_label}
                         </span>
                       </div>
-                      {(item as any).priority_breakdown && (
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          <span>Signals +{(item as any).priority_breakdown.citizen_signals}</span>
-                          <span>AI +{(item as any).priority_breakdown.ai_flags}</span>
-                          <span>Quality +{(item as any).priority_breakdown.evidence_quality}</span>
+                      {item.priority_reasons && item.priority_reasons.length > 0 && (
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {item.priority_reasons.map((r, i) => (
+                            <span key={i} title={r.description}>• {r.code}</span>
+                          ))}
                         </div>
                       )}
+                    </td>
+                    <td style={{ padding: '14px 16px' }}>
+                      <span style={{
+                        padding: '4px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 600,
+                        border: '1px solid',
+                        borderColor: item.actionability_state === 'ACTIONABLE' ? 'rgba(127,182,133,0.4)' : 'rgba(233,137,126,0.4)',
+                        color: item.actionability_state === 'ACTIONABLE' ? 'var(--accent-pass)' : 'var(--accent-potential)'
+                      }}>
+                        {item.actionability_state?.replace('_', ' ')}
+                      </span>
                     </td>
                     <td style={{ padding: '14px 16px', color: 'var(--text-primary)' }}>
                       <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>{item.citizen_reports_count} Citizens</span> • <span style={{ color: 'var(--accent-potential)', fontWeight: 700 }}>{item.ai_flags_count} AI Flags</span>
@@ -202,7 +207,7 @@ export const OfficerDashboard: React.FC<{ onInvestigate?: (productId?: string, s
               Enforcement Officer Review: {selectedCluster.product_name}
             </h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Priority Score: {selectedCluster.priority_score.toFixed(2)} • Issue: {selectedCluster.issue_type}
+              Priority: {selectedCluster.priority_label} • Status: {selectedCluster.status}
             </p>
 
             <form onSubmit={handleReviewSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

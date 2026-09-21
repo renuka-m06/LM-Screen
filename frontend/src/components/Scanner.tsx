@@ -467,7 +467,7 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             </h4>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-              {scanResult.checks_performed.map((chk, idx) => (
+              {scanResult.checks_performed.map((chk: any, idx: number) => (
                 <div key={idx} style={{ padding: '10px 12px', borderRadius: '6px', background: 'var(--color-subtle-bg)', border: '1px solid var(--border-color)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
@@ -494,7 +494,7 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             {/* Identity Warnings — shown prominently above review reasons */}
             {scanResult.identity_warnings && scanResult.identity_warnings.length > 0 && (
               <div style={{ padding: '14px', background: 'rgba(233, 185, 73, 0.12)', border: '2px solid var(--accent-review)', borderRadius: '10px', marginBottom: '16px' }}>
-                {scanResult.identity_warnings.map((w, i) => (
+                {scanResult.identity_warnings.map((w: any, i: number) => (
                   <div key={i} style={{ marginBottom: i < scanResult.identity_warnings.length - 1 ? '12px' : 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                       <AlertTriangle size={16} color="var(--accent-review)" />
@@ -527,7 +527,7 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
               <div style={{ padding: '12px', background: 'rgba(233, 185, 73, 0.1)', border: '1px solid rgba(233, 185, 73, 0.25)', borderRadius: '8px', marginBottom: '16px' }}>
                 <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-review)', display: 'block', marginBottom: '4px' }}>Review Factors Identified:</span>
                 <ul style={{ paddingLeft: '16px', fontSize: '0.78rem', color: 'var(--text-primary)' }}>
-                  {scanResult.review_reasons.map((r, i) => <li key={i}>{r}</li>)}
+                  {scanResult.review_reasons.map((r: any, i: number) => <li key={i}>{r}</li>)}
                 </ul>
               </div>
             )}

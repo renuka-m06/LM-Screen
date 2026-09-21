@@ -18,8 +18,17 @@ def get_dashboard_statistics(db: Session = Depends(get_db)):
     total_clusters = db.query(ProductCluster).count()
     total_reviews = db.query(OfficerReview).count()
 
-    # Top priority products (highest priority_score clusters)
-    top_clusters = db.query(ProductCluster).order_by(ProductCluster.priority_score.desc()).limit(5).all()
+    # Top priority products (PRIORITY_REVIEW clusters)
+    top_clusters = db.query(ProductCluster).filter(
+        ProductCluster.priority_class == "PRIORITY_REVIEW"
+    ).order_by(ProductCluster.updated_at.desc()).limit(5).all()
+    
+    # If not enough, fetch STANDARD_REVIEW
+    if len(top_clusters) < 5:
+        more = db.query(ProductCluster).filter(
+            ProductCluster.priority_class == "STANDARD_REVIEW"
+        ).order_by(ProductCluster.updated_at.desc()).limit(5 - len(top_clusters)).all()
+        top_clusters.extend(more)
     priority_products = []
     for c in top_clusters:
         prod = db.query(Product).filter(Product.id == c.product_id).first()
@@ -28,8 +37,11 @@ def get_dashboard_statistics(db: Session = Depends(get_db)):
             "product_name": c.product_name or (prod.product_name if prod else "Unknown"),
             "gtin": c.gtin or (prod.gtin if prod else None),
             "match_strength": c.match_strength,
-            "priority_score": round(c.priority_score, 2),
-            "priority_label": "HIGH" if c.priority_score >= 0.7 else "MEDIUM" if c.priority_score >= 0.4 else "LOW",
+            "priority_score": round(c.priority_score, 2), # Legacy
+            "priority_class": c.priority_class,
+            "priority_label": c.priority_class.replace("_", " "),
+            "evidence_strength": c.evidence_strength,
+            "actionability_state": c.actionability_state,
             "citizen_reports": c.report_count,
             "ai_flags": c.ai_flag_count,
             "status": c.status

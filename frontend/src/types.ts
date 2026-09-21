@@ -88,6 +88,7 @@ export interface ImageQuality {
 }
 
 export interface ScanResult {
+  [key: string]: any;
   screening_id: string;
   product_id?: string;
   status: 'PASS_SCREENING' | 'POTENTIAL_NON_COMPLIANCE' | 'NEEDS_REVIEW';
@@ -125,19 +126,18 @@ export interface PriorityQueueItem {
   product_id: string;
   product_name: string;
   gtin?: string;
-  issue_type: string;
+  issue_type?: string;
   priority_score: number;
-  priority_label?: string; // HIGH | MEDIUM | LOW
+  priority_class: string;
+  priority_label: string; 
+  evidence_strength?: string;
+  actionability_state?: string;
   citizen_reports_count: number;
   ai_flags_count: number;
-  priority_breakdown?: {
-    citizen_signals: number;
-    ai_flags: number;
-    confirmed_history: number;
-    evidence_quality: number;
-    severity: number;
-    recency: number;
-  };
+  priority_reasons?: Array<{
+    code: string;
+    description: string;
+  }>;
   recency: string;
   status: string;
 }
@@ -146,9 +146,12 @@ export interface PriorityProduct {
   cluster_id: string;
   product_name: string;
   gtin?: string;
-  issue_type: string;
+  issue_type?: string;
   priority_score: number;
+  priority_class: string;
   priority_label: string;
+  evidence_strength?: string;
+  actionability_state?: string;
   citizen_reports: number;
   ai_flags: number;
   status: string;

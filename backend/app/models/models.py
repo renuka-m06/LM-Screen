@@ -371,7 +371,15 @@ class ProductCluster(Base):
     # Aggregated metrics
     report_count = Column(Integer, default=1)
     ai_flag_count = Column(Integer, default=0)
-    priority_score = Column(Float, default=0.0)
+    priority_score = Column(Float, default=0.0) # Keeping for legacy sorting fallback
+
+    # Evidence-Based Prioritization
+    priority_class = Column(String, default="STANDARD_REVIEW")
+    priority_reasons = Column(JSON, nullable=True)
+    evidence_strength = Column(String, nullable=True)
+    actionability_state = Column(String, nullable=True)
+    prioritization_version = Column(String, nullable=True)
+
     status = Column(String, default="REVIEW_REQUIRED")
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

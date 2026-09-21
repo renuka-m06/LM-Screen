@@ -43,6 +43,10 @@ def get_cluster(cluster_id: str, db: Session = Depends(get_db)):
         "net_quantity": cluster.net_quantity,
         "match_method": cluster.match_method,
         "match_strength": cluster.match_strength,
+        "priority_class": cluster.priority_class,
+        "priority_reasons": cluster.priority_reasons,
+        "evidence_strength": cluster.evidence_strength,
+        "actionability_state": cluster.actionability_state,
         "report_count": cluster.report_count,
         "status": cluster.status,
         "scans": [

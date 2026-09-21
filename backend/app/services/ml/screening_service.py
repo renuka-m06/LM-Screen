@@ -47,8 +47,8 @@ class ScreeningService:
         det_result = self.detection.detect(image_np)
         trace.append({"stage": "PANEL_DETECTION", "status": det_result["status"], "detail": f"Method: {det_result['method']}"})
 
-        # 3. OCR
-        ocr_result = self.ocr.extract(image_np)
+        # 3. OCR (now with ML Detection Bounding Boxes for Regional OCR support)
+        ocr_result = self.ocr.extract(image_np, detections=det_result.get("detections", []))
         trace.append({"stage": "OCR", "status": ocr_result["status"], "detail": f"Tokens: {ocr_result['token_count']}"})
         
         # OCR Quality Refinement
@@ -62,7 +62,21 @@ class ScreeningService:
         # Get scale if available from barcode
         scale = barcode_result.get("raw_metrics", {}).get("scale_mm_per_pixel")
         evidence_list = self.evidence.extract(ocr_result["tokens"], scale_mm_per_pixel=scale)
-        trace.append({"stage": "EVIDENCE_EXTRACTION", "status": "OK", "detail": f"Extracted {len(evidence_list)} fields"})
+        
+        # 5b. Integrate ML Detections as Evidence
+        for det in det_result.get("detections", []):
+            evidence_list.append({
+                "type": "DETECTION",
+                "field": det.get("class_name"),
+                "value": det.get("bbox"),
+                "found": True,
+                "confidence": det.get("confidence", "UNKNOWN"),
+                "source": det.get("source", "UNKNOWN"),
+                "model_name": det.get("model_name"),
+                "model_version": det.get("model_version")
+            })
+
+        trace.append({"stage": "EVIDENCE_EXTRACTION", "status": "OK", "detail": f"Extracted {len(evidence_list)} pieces of evidence (OCR + ML)"})
 
         # 6. Classification
         class_result = self.classification.classify(ocr_result["tokens"], image_np=image_np)
@@ -89,8 +103,8 @@ class ScreeningService:
         # 9. Rule Engine Evaluation
         extracted_fields_legacy = {
             e["field"]: {
-                "normalized_value":  e["value"],
-                "confidence":        e["confidence"],
+                "normalized_value":  e.get("value"),
+                "confidence":        e.get("confidence"),
                 "evidence_state":    e.get("evidence_state", "PRESENT"),
                 "quality_reasons":   e.get("quality_reasons", []),
                 "numeric_value":     e.get("numeric_value"),
@@ -98,8 +112,9 @@ class ScreeningService:
                 "raw_unit":          e.get("raw_unit"),
                 "font_height_mm":    e.get("font_height_mm"),
                 "ocr_evidence_ids":  e.get("ocr_evidence_ids", []),
+                "source":            e.get("source", "OCR")
             }
-            for e in evidence_list if e["found"]
+            for e in evidence_list if e.get("found") and e.get("type", "TEXT") != "DETECTION"
         }
         
         rule_traces = self.rule_engine.evaluate(extracted_fields_legacy, context, q_result.get("raw_metrics", {}))

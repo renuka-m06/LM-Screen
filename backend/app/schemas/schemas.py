@@ -35,6 +35,9 @@ class ExtractedFieldSchema(BaseModel):
     extraction_method: str
     evidence_state: str = "UNCERTAIN"  # VERIFIED | SUPPORTED | UNCERTAIN | CONFLICTING | UNREADABLE | NOT_DETECTED | NOT_APPLICABLE | MANUALLY_VERIFIED
     quality_reasons: Optional[List[str]] = []
+    source: Optional[str] = None
+    model_name: Optional[str] = None
+    model_version: Optional[str] = None
 
 class RuleCheckSchema(BaseModel):
     rule_id: str

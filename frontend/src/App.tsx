@@ -71,7 +71,7 @@ export function App() {
     const gtinField    = scanResult.extracted_fields?.gtin;
     const userEntered  = scanResult.identity_warnings?.[0]?.user_provided;
 
-    const mismatchWarning = scanResult.identity_warnings?.find(w => w.type === 'PRODUCT_IDENTITY_MISMATCH');
+    const mismatchWarning = scanResult.identity_warnings?.find((w: any) => w.type === 'PRODUCT_IDENTITY_MISMATCH');
 
     // Apply confidence + state guards to every OCR-derived prefill value.
     const { value: productName, skipReason: productSkip } = guardedField(productField, userEntered);

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from backend.app.models.models import ProductCluster, Scan, CitizenReport
+from backend.app.services.prioritization import EvidencePrioritizationEngine
 
 class IdentityMatcher:
     def __init__(self, db: Session):
@@ -49,6 +50,7 @@ class IdentityMatcher:
             if cluster:
                 cluster.report_count += 1
                 self.db.commit()
+                self.recalculate_priority(cluster)
                 return cluster
 
         # 2. Strong GTIN Match
@@ -61,6 +63,7 @@ class IdentityMatcher:
                     cluster.match_method = "GTIN_MATCH"
                     cluster.match_strength = "STRONG_MATCH"
                 self.db.commit()
+                self.recalculate_priority(cluster)
                 return cluster
         
         # 3. Deterministic Identity Match (Brand + Product Name)
@@ -88,9 +91,24 @@ class IdentityMatcher:
                     cluster.match_method = "BRAND_PRODUCT_MATCH"
                     cluster.match_strength = "POSSIBLE_MATCH"
                 self.db.commit()
+                self.recalculate_priority(cluster)
                 return cluster
         
-        # 4. No Match - Create New Cluster
+        # 4. Optional ML Product Matcher Extension Point
+        ml_match_id = self._ml_product_matcher(scan, gtin, brand, product_name)
+        if ml_match_id:
+            cluster = self.db.query(ProductCluster).filter(ProductCluster.id == ml_match_id).first()
+            if cluster:
+                scan.cluster_id = cluster.id
+                cluster.report_count += 1
+                if not cluster.match_method or cluster.match_method == "INITIAL":
+                    cluster.match_method = "ML_PRODUCT_MATCHER"
+                    cluster.match_strength = "POSSIBLE_MATCH"
+                self.db.commit()
+                self.recalculate_priority(cluster)
+                return cluster
+        
+        # 5. No Match - Create New Cluster
         cluster = ProductCluster(
             product_id=scan.product_id,
             gtin=gtin,
@@ -110,4 +128,50 @@ class IdentityMatcher:
 
         scan.cluster_id = cluster.id
         self.db.commit()
+        
+        # Recalculate Prioritization
+        self.recalculate_priority(cluster)
+        
         return cluster
+
+    def _ml_product_matcher(self, scan, gtin, brand, product_name) -> str:
+        """
+        Extension point for future ML-assisted product matching.
+        Does not fake similarity scores. Currently deterministic matching is authoritative.
+        """
+        # Future implementation might use embeddings, visual features, OCR identity, etc.
+        return None
+
+    def recalculate_priority(self, cluster: ProductCluster):
+        engine = EvidencePrioritizationEngine()
+        
+        scans = self.db.query(Scan).filter(Scan.cluster_id == cluster.id).all()
+        # Ensure relationships are loaded for scans to avoid detached instances or N+1 issues
+        # Actually, evaluate_cluster just needs scan.quality_status, decision_traces
+        
+        reports = self.db.query(CitizenReport).filter(CitizenReport.scan_id.in_([s.id for s in scans]) | (CitizenReport.product_id == cluster.product_id)).all()
+        
+        from backend.app.models.models import RuleResult, ConsistencyCheck, ExtractedField
+        
+        rule_results = []
+        consistency_checks = []
+        evidence = []
+        for s in scans:
+            rule_results.extend(self.db.query(RuleResult).filter(RuleResult.scan_id == s.id).all())
+            consistency_checks.extend(self.db.query(ConsistencyCheck).filter(ConsistencyCheck.scan_id == s.id).all())
+            evidence.extend(self.db.query(ExtractedField).filter(ExtractedField.scan_id == s.id).all())
+            
+        result = engine.evaluate_cluster(cluster, scans, reports, rule_results, consistency_checks, evidence)
+        
+        cluster.priority_class = result["priority_class"]
+        cluster.priority_reasons = result["priority_reasons"]
+        cluster.evidence_strength = result["evidence_strength"]
+        cluster.actionability_state = result["actionability_state"]
+        cluster.prioritization_version = result["prioritization_version"]
+        
+        # Keep legacy score for compatibility during transition if needed
+        score_map = {"PRIORITY_REVIEW": 0.9, "STANDARD_REVIEW": 0.5, "EVIDENCE_INSUFFICIENT": 0.1}
+        cluster.priority_score = score_map.get(result["priority_class"], 0.5)
+        
+        self.db.commit()
+

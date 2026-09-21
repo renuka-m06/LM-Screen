@@ -1,6 +1,46 @@
 import type { ScanResult, PriorityQueueItem, DashboardStats } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+const TIMEOUT_MS = 30000; // 30 seconds
+
+/**
+ * Shared fetch wrapper with:
+ *  - Timeout handling (30s default)
+ *  - Network error detection (backend not running)
+ *  - HTTP status → user-friendly error messages
+ *  - Never exposes raw stack traces or internal server details to UI
+ */
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. The server may be busy — please try again.');
+    }
+    // Network-level failure (server not running, no connection, etc.)
+    throw new Error('Cannot connect to the LM-Screen server. Please ensure the backend is running on port 8000.');
+  }
+}
+
+function httpStatusMessage(status: number): string {
+  switch (status) {
+    case 400: return 'Invalid request. Please check your input.';
+    case 401: return 'Authentication required. Please log in again.';
+    case 403: return 'You do not have permission to perform this action.';
+    case 404: return 'The requested record was not found.';
+    case 413: return 'File is too large. Maximum upload size is 10MB.';
+    case 415: return 'Unsupported file type. Please upload a JPEG, PNG, or WebP image.';
+    case 500: return 'An internal server error occurred. Please try again or contact support.';
+    default: return `Server returned an unexpected error (HTTP ${status}).`;
+  }
+}
+
 
 export async function uploadScanImage(file: File, productName?: string, gtin?: string): Promise<ScanResult> {
   const formData = new FormData();
@@ -8,14 +48,14 @@ export async function uploadScanImage(file: File, productName?: string, gtin?: s
   if (productName) formData.append('product_name', productName);
   if (gtin) formData.append('gtin', gtin);
 
-  const response = await fetch(`${API_BASE_URL}/scans`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/scans`, {
     method: 'POST',
     body: formData,
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Scan processing failed.');
+    throw new Error(errorData.detail || httpStatusMessage(response.status));
   }
 
   return response.json();
@@ -29,32 +69,29 @@ export async function submitCitizenReport(payload: {
   location_city?: string;
   scan_id?: string;
 }): Promise<{ report_id: string; status: string; message: string }> {
-  const response = await fetch(`${API_BASE_URL}/reports`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/reports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    throw new Error('Signal submission failed.');
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || httpStatusMessage(response.status));
   }
 
   return response.json();
 }
 
 export async function getOfficerQueue(): Promise<PriorityQueueItem[]> {
-  const response = await fetch(`${API_BASE_URL}/officer/queue`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch officer queue.');
-  }
+  const response = await fetchWithTimeout(`${API_BASE_URL}/officer/queue`);
+  if (!response.ok) throw new Error(httpStatusMessage(response.status));
   return response.json();
 }
 
 export async function getScanResult(scanId: string): Promise<ScanResult> {
-  const response = await fetch(`${API_BASE_URL}/scans/${scanId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch scan details.');
-  }
+  const response = await fetchWithTimeout(`${API_BASE_URL}/scans/${scanId}`);
+  if (!response.ok) throw new Error(httpStatusMessage(response.status));
   return response.json();
 }
 
@@ -136,6 +173,14 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return response.json();
 }
 
+export async function getSystemHealth(): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/analytics/system/health`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch system health.');
+  }
+  return response.json();
+}
+
 export async function getProductIntelligence(productId: string): Promise<any> {
   const response = await fetch(`${API_BASE_URL}/products/${productId}/intelligence`);
   if (!response.ok) {
@@ -160,3 +205,44 @@ export async function listProducts(): Promise<any[]> {
   return response.json();
 }
 
+export async function getAnalyticsOverview(days: number = 30): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/analytics/overview?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics overview.');
+  return response.json();
+}
+
+export async function getAnalyticsTrends(days: number = 30): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/analytics/trends?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics trends.');
+  return response.json();
+}
+
+export async function getAnalyticsCategories(days: number = 30): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/analytics/categories?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics categories.');
+  return response.json();
+}
+
+export async function getAnalyticsRequirements(days: number = 30): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/analytics/requirements?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics requirements.');
+  return response.json();
+}
+
+export async function getAnalyticsQuality(days: number = 30): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/analytics/quality?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics quality.');
+  return response.json();
+}
+
+export async function getAnalyticsConsistency(days: number = 30): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/analytics/consistency?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics consistency.');
+  return response.json();
+}
+
+export async function getAnalyticsPrioritization(days: number = 30): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/analytics/prioritization?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch analytics prioritization.');
+  return response.json();
+}

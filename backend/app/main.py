@@ -6,7 +6,7 @@ import os
 
 from backend.app.config import settings
 from backend.app.database import engine, Base
-from backend.app.routers import scans, reports, officer, dashboard, auth, products
+from backend.app.routers import scans, reports, officer, dashboard, auth, products, analytics
 
 # Initialize database tables on startup
 Base.metadata.create_all(bind=engine)
@@ -38,6 +38,7 @@ app.include_router(officer.router, prefix=settings.API_V1_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(products.router, prefix=settings.API_V1_PREFIX)
+app.include_router(analytics.router, prefix=settings.API_V1_PREFIX)
 
 # Serve uploaded images statically
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -46,12 +47,16 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 # Global Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    import logging
+    logging.error(f"Unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    # Only expose internal detail in development; scrub in production
+    detail = str(exc) if settings.ENV == "development" else "An internal error occurred. Please try again."
     return JSONResponse(
         status_code=500,
         content={
             "status": "NEEDS_REVIEW",
             "public_label": "More evidence or human review required",
-            "error_detail": str(exc),
+            "error_detail": detail,
             "disclaimer": "This platform performs image-based Legal Metrology compliance screening. Exceptions default safely to NEEDS_REVIEW."
         }
     )
