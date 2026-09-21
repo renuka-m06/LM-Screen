@@ -246,6 +246,8 @@ async def process_scan(
                 normalized_value=ev["value"],
                 found=ev["found"],
                 confidence=ev["confidence"],
+                evidence_state=ev.get("evidence_state", "UNCERTAIN"),
+                quality_reasons=ev.get("quality_reasons", []),
                 source_type=ev.get("source", {}).get("type"),
                 source_image_id=db_image.id,
                 source_detection_id=det_map.get("primary"),
@@ -337,6 +339,16 @@ async def process_scan(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database transaction failed: {str(e)}")
 
+    evidence_summary = {
+        "applicable_fields": len(evidence_list),
+        "supported": sum(1 for e in evidence_list if e.get("evidence_state") in ["VERIFIED", "SUPPORTED", "MANUALLY_VERIFIED"]),
+        "uncertain": sum(1 for e in evidence_list if e.get("evidence_state") == "UNCERTAIN"),
+        "conflicting": sum(1 for e in evidence_list if e.get("evidence_state") == "CONFLICTING"),
+        "unreadable": sum(1 for e in evidence_list if e.get("evidence_state") == "UNREADABLE"),
+        "not_detected": sum(1 for e in evidence_list if e.get("evidence_state") == "NOT_DETECTED"),
+        "not_applicable": sum(1 for e in evidence_list if e.get("evidence_state") == "NOT_APPLICABLE")
+    }
+
     return ScanResponse(
         screening_id=scan_db.id,
         product_id=db_product.id if db_product else None,
@@ -351,6 +363,7 @@ async def process_scan(
         consistency_checks=pipeline_result.get("consistency_checks", []),
         review_factors=[{"reason": r} for r in verdict.get("review_reasons", [])] + identity_warnings,
         decision_trace=decision_trace,
+        evidence_summary=evidence_summary,
         
         # Legacy
         public_label=verdict["public_label"],
@@ -531,7 +544,31 @@ def get_scan_findings(scan_id: str, db: Session = Depends(get_db)):
             "created_at": rule_result.evaluated_at.isoformat()
         })
 
-    return {"findings": findings}
+    evidence_list = [
+        {
+            "field_name": f.field_name,
+            "raw_value": f.raw_value,
+            "normalized_value": f.normalized_value,
+            "confidence": f.confidence,
+            "evidence_state": f.evidence_state,
+            "quality_reasons": f.quality_reasons,
+            "ocr_evidence_ids": f.ocr_evidence_ids or [],
+            "extraction_method": f.extraction_method
+        }
+        for f in scan.extracted_fields
+    ]
+    
+    evidence_summary = {
+        "applicable_fields": len(evidence_list),
+        "supported": sum(1 for e in evidence_list if e.get("evidence_state") in ["VERIFIED", "SUPPORTED", "MANUALLY_VERIFIED"]),
+        "uncertain": sum(1 for e in evidence_list if e.get("evidence_state") == "UNCERTAIN"),
+        "conflicting": sum(1 for e in evidence_list if e.get("evidence_state") == "CONFLICTING"),
+        "unreadable": sum(1 for e in evidence_list if e.get("evidence_state") == "UNREADABLE"),
+        "not_detected": sum(1 for e in evidence_list if e.get("evidence_state") == "NOT_DETECTED"),
+        "not_applicable": sum(1 for e in evidence_list if e.get("evidence_state") == "NOT_APPLICABLE")
+    }
+
+    return {"findings": findings, "evidence": evidence_list, "evidence_summary": evidence_summary}
 
 
 @router.get("/{scan_id}/evidence-graph")

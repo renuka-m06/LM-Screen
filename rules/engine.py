@@ -114,26 +114,22 @@ class DeterministicRuleEngine:
                         status = "NOT_DETECTED"
                         reason = f"Conditional field '{field}' was not detected."
             else:
-                # Field found
-                status = "PASS"
-                reason = f"Required declaration '{field}' visible and verified."
+                # Field found, but what is its evidence state?
+                ev_state = field_data.get("evidence_state", "SUPPORTED")
                 
-                # Perform specific arithmetic/logic checks if applicable
-                if field == "mrp" and "net_quantity" in extracted_fields and "unit_sale_price" in extracted_fields:
-                    # USP Check logic
-                    mrp_val = field_data.get("numeric_value")
-                    qty_val = extracted_fields["net_quantity"].get("numeric_value")
-                    if mrp_val and qty_val:
-                        expected_usp = round(mrp_val / qty_val, 2)
-                        usp_field = extracted_fields["unit_sale_price"]
-                        printed_usp = usp_field.get("numeric_value")
-                        if printed_usp and abs(expected_usp - printed_usp) > max(0.05, 0.02 * expected_usp):
-                            status = "POTENTIAL_NON_COMPLIANCE"
-                            reason = f"USP arithmetic mismatch (Printed: {printed_usp} | Expected: {expected_usp})"
-                            
-                elif field == "best_before" and ("manufacture_date" in extracted_fields or "packing_date" in extracted_fields):
-                    # Chronology Check logic (simplified for dynamic engine)
-                    pass 
+                if ev_state == "UNCERTAIN":
+                    status = "REVIEW_REQUIRED"
+                    reason = f"Required field '{field}' was extracted but evidence is uncertain (e.g. poor image quality or low OCR confidence)."
+                elif ev_state == "CONFLICTING":
+                    status = "REVIEW_REQUIRED"
+                    reason = f"Required field '{field}' was extracted but cross-evidence checks found conflicts."
+                elif ev_state == "UNREADABLE":
+                    status = "REVIEW_REQUIRED"
+                    reason = f"Required field '{field}' evidence region is unreadable."
+                else:
+                    # VERIFIED, SUPPORTED, MANUALLY_VERIFIED
+                    status = "PASS"
+                    reason = f"Required declaration '{field}' visible and supported by evidence."
 
             traces.append({
                 "rule_id": f"REQ_{field.upper()}",

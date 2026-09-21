@@ -12,6 +12,7 @@ from .evidence_service import EvidenceService
 from rules.engine import DeterministicRuleEngine
 from rules.verdict import VerdictAggregator
 from ai.consistency_engine import ConsistencyEngine
+from ai.evidence_quality import EvidenceQualityEvaluator
 
 class ScreeningService:
     """
@@ -27,6 +28,7 @@ class ScreeningService:
         
         self.rule_engine = DeterministicRuleEngine()
         self.consistency_engine = ConsistencyEngine()
+        self.quality_evaluator = EvidenceQualityEvaluator()
         self.verdict_aggregator = VerdictAggregator()
 
     def process_image(self, image_np: np.ndarray, user_hints: Dict[str, str] = None) -> Dict[str, Any]:
@@ -66,11 +68,7 @@ class ScreeningService:
         class_result = self.classification.classify(ocr_result["tokens"], image_np=image_np)
         trace.append({"stage": "PRODUCT_CLASSIFICATION", "status": class_result["status"], "detail": f"Category: {class_result['category']}"})
 
-        # 7. Rule Engine Evaluation
-        # Convert evidence_list back to dict format temporarily if rules.engine hasn't been updated, 
-        # or pass directly if rules.engine expects list. We assume it expects dict until we update it.
-        # But wait, we are updating rules.engine.py to accept list.
-        # So we pass evidence_list directly!
+        # 7. Context Setup
         context = {
             "product_category": class_result["category"],
             "scale_mm_per_pixel": scale,
@@ -78,19 +76,23 @@ class ScreeningService:
         if det_result["detected"] and det_result["detections"]:
             context["pdp_crop_box"] = det_result["detections"][0].get("crop_box")
 
-        # Let's pass the raw dict to rules engine for now, wait we will update rules engine next.
-        # The prompt says: Connect structured evidence to the EXISTING LM-Screen rule system.
-        # Let's assume rules engine evaluate takes evidence_list.
-        
-        # Build extracted_fields dict for the rule engine.
-        # Must include numeric_value, unit, raw_unit, evidence_state, and
-        # ocr_evidence_ids — the engine reads all of these for LM007-LM009.
-        # evidence_service now forwards all of these; map by field name.
+        # 7b. Cross-Evidence Consistency Engine
+        consistency_checks = self.consistency_engine.evaluate(evidence_list, barcode_result, context)
+        trace.append({"stage": "CONSISTENCY_EVALUATION", "status": "OK", "detail": f"Evaluated {len(consistency_checks)} consistency checks"})
+
+        # 8. Evidence Quality Evaluation
+        evidence_list = self.quality_evaluator.evaluate_evidence(
+            evidence_list, ocr_result["tokens"], q_result, consistency_checks, barcode_result
+        )
+        trace.append({"stage": "EVIDENCE_QUALITY", "status": "OK", "detail": "Assigned quality states to evidence"})
+
+        # 9. Rule Engine Evaluation
         extracted_fields_legacy = {
             e["field"]: {
                 "normalized_value":  e["value"],
                 "confidence":        e["confidence"],
                 "evidence_state":    e.get("evidence_state", "PRESENT"),
+                "quality_reasons":   e.get("quality_reasons", []),
                 "numeric_value":     e.get("numeric_value"),
                 "unit":              e.get("unit"),
                 "raw_unit":          e.get("raw_unit"),
@@ -103,11 +105,7 @@ class ScreeningService:
         rule_traces = self.rule_engine.evaluate(extracted_fields_legacy, context, q_result.get("raw_metrics", {}))
         trace.append({"stage": "RULE_EVALUATION", "status": "OK", "detail": f"Evaluated {len(rule_traces)} rules"})
 
-        # 7b. Cross-Evidence Consistency Engine
-        consistency_checks = self.consistency_engine.evaluate(evidence_list, barcode_result, context)
-        trace.append({"stage": "CONSISTENCY_EVALUATION", "status": "OK", "detail": f"Evaluated {len(consistency_checks)} consistency checks"})
-
-        # 8. Verdict Aggregation
+        # 10. Verdict Aggregation
         verdict = self.verdict_aggregator.aggregate(rule_traces, q_result.get("raw_metrics", {}), barcode_result.get("raw_metrics", {}), context, [])
         trace.append({"stage": "VERDICT", "status": verdict.get("status"), "detail": f"Confidence: {verdict.get('screening_confidence')}"})
 

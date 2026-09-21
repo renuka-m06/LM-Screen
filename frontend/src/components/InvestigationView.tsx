@@ -60,6 +60,8 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
   const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'signals' | 'audit'>('overview');
   const [expandedScan, setExpandedScan] = useState<string | null>(null);
   const [expandedFindings, setExpandedFindings] = useState<Finding[]>([]);
+  const [expandedEvidence, setExpandedEvidence] = useState<any[]>([]);
+  const [expandedEvidenceSummary, setExpandedEvidenceSummary] = useState<any>(null);
   const [loadingFindings, setLoadingFindings] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>(productId);
@@ -139,11 +141,15 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
     setExpandedScan(clickedScanId);
     setLoadingFindings(true);
     try {
-      const data = await getScanFindings(clickedScanId);
+      const data: any = await getScanFindings(clickedScanId);
       setExpandedFindings(data.findings || []);
+      setExpandedEvidence(data.evidence || []);
+      setExpandedEvidenceSummary(data.evidence_summary || null);
     } catch (err) {
       console.error('Failed to load findings:', err);
       setExpandedFindings([]);
+      setExpandedEvidence([]);
+      setExpandedEvidenceSummary(null);
     } finally {
       setLoadingFindings(false);
     }
@@ -656,6 +662,43 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                           <p style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <TrendingUp size={14} color="var(--color-primary)" /> Evidence Chain
                           </p>
+
+                          {expandedEvidenceSummary && (
+                            <div style={{
+                              marginBottom: '16px', padding: '12px', borderRadius: '8px',
+                              background: 'var(--bg-card)', border: '1px dashed var(--border-color)',
+                              display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center'
+                            }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                Overall Evidence Status
+                              </span>
+                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', background: 'var(--color-subtle-bg)', padding: '2px 8px', borderRadius: '12px' }}>
+                                  {expandedEvidenceSummary.applicable_fields} Applicable
+                                </span>
+                                {expandedEvidenceSummary.supported > 0 && (
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#fff', background: 'var(--accent-pass)', padding: '2px 8px', borderRadius: '12px' }}>
+                                    {expandedEvidenceSummary.supported} Supported
+                                  </span>
+                                )}
+                                {expandedEvidenceSummary.uncertain > 0 && (
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#fff', background: 'var(--accent-review)', padding: '2px 8px', borderRadius: '12px' }}>
+                                    {expandedEvidenceSummary.uncertain} Uncertain
+                                  </span>
+                                )}
+                                {expandedEvidenceSummary.conflicting > 0 && (
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#fff', background: 'var(--accent-potential)', padding: '2px 8px', borderRadius: '12px' }}>
+                                    {expandedEvidenceSummary.conflicting} Conflicting
+                                  </span>
+                                )}
+                                {expandedEvidenceSummary.not_detected > 0 && (
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', background: 'var(--color-subtle-bg)', padding: '2px 8px', borderRadius: '12px' }}>
+                                    {expandedEvidenceSummary.not_detected} Missing
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           
                           {loadingFindings ? (
                             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -689,6 +732,49 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                                   <div style={{ background: 'var(--color-subtle-bg)', padding: '10px', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>
                                     {finding.explanation}
                                   </div>
+
+                                  {/* Evidence Detail Panel */}
+                                  {expandedEvidence && expandedEvidence.find(e => e.field_name === finding.field) && (
+                                    <div style={{ marginTop: '10px', padding: '10px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                        <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>Extracted Evidence</span>
+                                        {(() => {
+                                          const ev = expandedEvidence.find(e => e.field_name === finding.field);
+                                          const isError = ev.evidence_state === 'CONFLICTING' || ev.evidence_state === 'UNREADABLE';
+                                          const isWarn = ev.evidence_state === 'UNCERTAIN';
+                                          return (
+                                            <span style={{
+                                              fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                                              background: isError ? 'rgba(233,137,126,0.15)' : isWarn ? 'rgba(233,185,73,0.15)' : 'rgba(127,182,133,0.15)',
+                                              color: isError ? 'var(--accent-potential)' : isWarn ? 'var(--accent-review)' : 'var(--accent-pass)'
+                                            }}>
+                                              {ev.evidence_state}
+                                            </span>
+                                          );
+                                        })()}
+                                      </div>
+                                      
+                                      {(() => {
+                                        const ev = expandedEvidence.find(e => e.field_name === finding.field);
+                                        return (
+                                          <>
+                                            <div style={{ marginBottom: '6px' }}>
+                                              <span style={{ color: 'var(--text-muted)' }}>Value: </span>
+                                              <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ev.normalized_value || 'None'}</span>
+                                            </div>
+                                            {ev.quality_reasons && ev.quality_reasons.length > 0 && (
+                                              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
+                                                <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Evidence Notes:</span>
+                                                <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
+                                                  {ev.quality_reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                                                </ul>
+                                              </div>
+                                            )}
+                                          </>
+                                        );
+                                      })()}
+                                    </div>
+                                  )}
 
                                   {/* Officer Correction UI */}
                                   {finding.evidence_ids && finding.evidence_ids.length > 0 && userRole === 'OFFICER' && (

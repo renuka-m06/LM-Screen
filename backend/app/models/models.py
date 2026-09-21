@@ -187,7 +187,9 @@ class ExtractedField(Base):
     raw_text = Column(Text, nullable=True)
     normalized_value = Column(Text, nullable=True) # Also used as field_value
     found = Column(Boolean, default=True)
-    confidence = Column(Float, nullable=False)
+    confidence = Column(Float, nullable=False) # Legacy float
+    evidence_state = Column(String, default="UNCERTAIN")
+    quality_reasons = Column(JSON, nullable=True)
     
     source_type = Column(String, nullable=True)
     source_image_id = Column(String, ForeignKey("product_images.id"), nullable=True)

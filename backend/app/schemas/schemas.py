@@ -33,7 +33,8 @@ class ExtractedFieldSchema(BaseModel):
     confidence: float
     ocr_evidence_ids: List[str] = []
     extraction_method: str
-    evidence_state: str = "PRESENT"  # PRESENT | ABSENT_FROM_EVIDENCE | UNCERTAIN | NOT_APPLICABLE | NOT_CHECKED
+    evidence_state: str = "UNCERTAIN"  # VERIFIED | SUPPORTED | UNCERTAIN | CONFLICTING | UNREADABLE | NOT_DETECTED | NOT_APPLICABLE | MANUALLY_VERIFIED
+    quality_reasons: Optional[List[str]] = []
 
 class RuleCheckSchema(BaseModel):
     rule_id: str
@@ -92,6 +93,7 @@ class ScanResponse(BaseModel):
     consistency_checks: List[Dict[str, Any]] = []
     review_factors: List[Dict[str, Any]] = []
     decision_trace: List[Dict[str, Any]] = []
+    evidence_summary: Optional[Dict[str, Any]] = None
     
     # Legacy fields to avoid immediate breakage if strictly needed by frontend
     public_label: str

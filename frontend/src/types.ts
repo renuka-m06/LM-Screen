@@ -17,7 +17,8 @@ export interface ExtractedField {
   confidence: number;
   ocr_evidence_ids: string[];
   extraction_method: string;
-  evidence_state?: string; // PRESENT | ABSENT_FROM_EVIDENCE | UNCERTAIN | NOT_APPLICABLE | NOT_CHECKED
+  evidence_state?: string; // VERIFIED | SUPPORTED | UNCERTAIN | CONFLICTING | UNREADABLE | NOT_DETECTED | NOT_APPLICABLE | MANUALLY_VERIFIED
+  quality_reasons?: string[];
   bounding_box?: { x: number; y: number; width: number; height: number };
 }
 
@@ -102,6 +103,15 @@ export interface ScanResult {
   consistency_checks?: ConsistencyCheck[];
   review_factors: any[];
   decision_trace: DecisionTraceStep[];
+  evidence_summary?: {
+    applicable_fields: number;
+    supported: number;
+    uncertain: number;
+    conflicting: number;
+    unreadable: number;
+    not_detected: number;
+    not_applicable: number;
+  };
   
   // Legacy
   rule_version: string;
