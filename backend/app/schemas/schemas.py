@@ -41,6 +41,17 @@ class RuleCheckSchema(BaseModel):
     status: str
     reason: Optional[str] = None
 
+class FindingSchema(BaseModel):
+    finding_id: str
+    scan_id: str
+    field: str
+    observed_value: Optional[str] = None
+    rule_reference: str
+    status: str
+    explanation: str
+    evidence_ids: List[str] = []
+    created_at: str
+
 class IdentityWarningSchema(BaseModel):
     type: str                           # PRODUCT_IDENTITY_MISMATCH | GTIN_CONSISTENCY_WARNING
     severity: str                       # NEEDS_REVIEW

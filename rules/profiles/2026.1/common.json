@@ -94,6 +94,27 @@
       "failure_status": "POTENTIAL_NON_COMPLIANCE",
       "uncertain_status": "NEEDS_REVIEW",
       "legal_reference": "Rule 11 and 12 Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM010",
+      "name": "Dimensions Declaration",
+      "description": "Checks for visible dimensions (length, breadth, thickness, size).",
+      "applies_when": { "market_context": ["retail", "unknown"] },
+      "required_fields": ["dimensions"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(f) Legal Metrology (Packaged Commodities) Rules, 2011"
+    },
+    {
+      "rule_id": "LM011",
+      "name": "Date Chronology Validation",
+      "description": "Checks if the Best Before / Expiry date is logically after the Date of Manufacture / Packing.",
+      "applies_when": { "market_context": ["retail", "unknown"] },
+      "required_fields": ["best_before", "manufacture_date"],
+      "require_any": false,
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Logical consistency check for chronological declarations."
     }
   ]
 }

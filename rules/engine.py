@@ -356,6 +356,82 @@ class DeterministicRuleEngine:
                         "reason": f"Standard unit abbreviation used ('{raw_unit}')"
                     })
                 continue
+            if rule_id == "LM011":
+                exp_field = extracted_fields.get("best_before")
+                mfg_field = extracted_fields.get("manufacture_date") or extracted_fields.get("packing_date") or extracted_fields.get("import_date")
+                
+                if not exp_field or not mfg_field:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": "cannot verify — both Expiry and Mfg/Pkd dates are required"
+                    })
+                    continue
+
+                exp_val = exp_field.get("normalized_value", "")
+                mfg_val = mfg_field.get("normalized_value", "")
+                
+                import re
+                from datetime import datetime
+                
+                def parse_date(d_str):
+                    d_str = re.sub(r'[^0-9/.\-]', '', d_str).replace('.', '/').replace('-', '/')
+                    parts = [int(p) for p in d_str.split('/') if p]
+                    if len(parts) == 2:
+                        m, y = parts
+                        if y < 100: y += 2000
+                        return datetime(y, m, 1)
+                    elif len(parts) == 3:
+                        d, m, y = parts
+                        if y < 100: y += 2000
+                        return datetime(y, m, d)
+                    return None
+
+                try:
+                    exp_date = parse_date(exp_val)
+                    mfg_date = parse_date(mfg_val)
+                    if exp_date and mfg_date:
+                        if exp_date >= mfg_date:
+                            traces.append({
+                                "rule_id": rule_id,
+                                "rule_name": rule["name"],
+                                "version": profile.get("version", "2026.1"),
+                                "status": "PASS",
+                                "applicable": True,
+                                "confidence": 0.90,
+                                "evidence_ids": evidence_ids,
+                                "reason": f"Chronology valid: Expiry ({exp_val}) is after/on Mfg ({mfg_val})"
+                            })
+                        else:
+                            traces.append({
+                                "rule_id": rule_id,
+                                "rule_name": rule["name"],
+                                "version": profile.get("version", "2026.1"),
+                                "status": "POTENTIAL_NON_COMPLIANCE",
+                                "applicable": True,
+                                "confidence": 0.90,
+                                "evidence_ids": evidence_ids,
+                                "reason": f"Chronology invalid: Expiry ({exp_val}) is before Mfg ({mfg_val})"
+                            })
+                    else:
+                        raise ValueError("Unparseable")
+                except Exception:
+                    traces.append({
+                        "rule_id": rule_id,
+                        "rule_name": rule["name"],
+                        "version": profile.get("version", "2026.1"),
+                        "status": "NEEDS_REVIEW",
+                        "applicable": True,
+                        "confidence": 0.5,
+                        "evidence_ids": evidence_ids,
+                        "reason": f"Could not strictly parse dates (Exp: {exp_val}, Mfg: {mfg_val}) to verify chronology."
+                    })
+                continue
 
             if quality_status.get("status") == "RETAKE_REQUIRED":
                 # Insufficient image quality forces NEEDS_REVIEW on rules

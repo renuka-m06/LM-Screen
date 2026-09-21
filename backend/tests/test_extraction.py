@@ -467,15 +467,16 @@ class TestManufacturerExtraction:
             make_token("t2", "ABC Foods Pvt Ltd.")
         ]
         fields = self.extractor.extract_fields(tokens)
-        assert "manufacturer_or_packer" in fields
+        assert "packer_name" in fields or "manufacturer_or_packer" in fields
         # Must NOT be hardcoded "PureHarvest Agro" (BUG-02 regression)
-        assert "PureHarvest" not in fields["manufacturer_or_packer"]["normalized_value"], \
+        field = fields.get("packer_name") or fields.get("manufacturer_or_packer")
+        assert "PureHarvest" not in field["normalized_value"], \
             "BUG-02: Hardcoded fallback must not appear for non-PureHarvest images"
 
     def test_mfg_by_keyword(self):
         tokens = [make_token("t1", "Mfg by: XYZ Industries Noida UP")]
         fields = self.extractor.extract_fields(tokens)
-        assert "manufacturer_or_packer" in fields
+        assert "manufacturer_name" in fields or "manufacturer_or_packer" in fields
 
     def test_no_manufacturer_no_hardcode(self):
         """When no manufacturer keyword, field should be absent — no hardcoded fallback."""
@@ -730,7 +731,7 @@ class TestIdentityMismatchScenario:
         assert "mrp" in fields, "MRP must be extracted"
         assert "manufacture_date" in fields, "Mfg. Date with period must be extracted (BUG-01)"
         assert "best_before" in fields, "Best before must be extracted"
-        assert "manufacturer_or_packer" in fields, "Manufacturer must be extracted"
+        assert "packer_name" in fields or "manufacturer_or_packer" in fields, "Manufacturer must be extracted"
         assert "consumer_care" in fields, "Consumer care must be extracted"
         assert "gstin" in fields, "GSTIN must be extracted"
         assert "gtin" in fields, "GTIN must be extracted"
@@ -746,6 +747,8 @@ class TestIdentityMismatchScenario:
         # D. No hardcoded fallback
         if "manufacturer_or_packer" in fields:
             assert "PureHarvest" not in fields["manufacturer_or_packer"]["normalized_value"]
+        if "packer_name" in fields:
+            assert "PureHarvest" not in fields["packer_name"]["normalized_value"]
 
     def test_identity_mismatch_warning(self):
         """User provides PureHarvest Atta but image says Premium Choco-Chip Biscuits."""
@@ -770,3 +773,112 @@ class TestIdentityMismatchScenario:
 
         result = self.agg.aggregate(traces, quality, barcode, context, warnings)
         assert result["status"] == "NEEDS_REVIEW"
+
+class TestNewComplianceFields:
+    def setup_method(self):
+        self.extractor = FieldExtractor()
+
+    def test_fssai_license(self):
+        tokens = [
+            make_token("t1", "FSSAI Lic. No. 11221302000439"),
+            make_token("t2", "Batch: AB12345")
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "fssai_license" in fields
+        assert fields["fssai_license"]["normalized_value"] == "11221302000439"
+        
+    def test_batch_number(self):
+        tokens = [
+            make_token("t1", "Batch No: AB-12345-X"),
+            make_token("t2", "Lot 998877")
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "batch_number" in fields
+        assert fields["batch_number"]["normalized_value"] == "AB-12345-X"
+
+    def test_ingredients_and_dimensions(self):
+        tokens = [
+            make_token("t1", "Ingredients: Coriander, Cumin, Chilli"),
+            make_token("t2", "Length: 15.5 cm"),
+            make_token("t3", "Net Qty: 100g")
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "ingredients" in fields
+        assert "Coriander" in fields["ingredients"]["normalized_value"]
+        assert "dimensions" in fields
+        assert fields["dimensions"]["normalized_value"] == "15.5 cm"
+
+class TestExpansionFields:
+    def setup_method(self):
+        self.extractor = FieldExtractor()
+
+    def test_brand_and_variant(self):
+        tokens = [
+            make_token("t1", "Brand Name: Nestle"),
+            make_token("t2", "Variant: Extra Strong Coffee"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "brand_name" in fields
+        assert fields["brand_name"]["normalized_value"] == "Nestle"
+        assert "product_variant" in fields
+        assert fields["product_variant"]["normalized_value"] == "Extra Strong Coffee"
+
+    def test_identity_fields(self):
+        tokens = [
+            make_token("t1", "Model No: XYZ-123"),
+            make_token("t2", "SKU: 9988-ABC"),
+            make_token("t3", "Serial Number: SN-55555"),
+            make_token("t4", "Website: www.example.com"),
+            make_token("t5", "Email: contact@example.com")
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert fields["model_number"]["normalized_value"] == "XYZ-123"
+        assert fields["sku"]["normalized_value"] == "9988-ABC"
+        assert fields["serial_number"]["normalized_value"] == "SN-55555"
+        assert fields["website"]["normalized_value"] == "www.example.com"
+        assert fields["email"]["normalized_value"] == "contact@example.com"
+
+    def test_certifications_array(self):
+        tokens = [
+            make_token("t1", "ISI Lic No. 1234567"),
+            make_token("t2", "FSSAI Lic. No. 11221302000439")
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "certifications" in fields
+        certs = fields["certifications"]["normalized_value"]
+        assert len(certs) == 2
+        assert any(c["type"] == "ISI" and c["number"] == "1234567" for c in certs)
+        assert any(c["type"] == "FSSAI" and c["number"] == "11221302000439" for c in certs)
+        assert "fssai_license" in fields  # backward compat
+
+    def test_food_specific_blocks(self):
+        tokens = [
+            make_token("t1", "Allergen Information: Contains Milk and Nuts"),
+            make_token("t2", "Storage: Keep in a cool dry place"),
+            make_token("t3", "Directions for use: Add 2 spoons in hot water"),
+            make_token("t4", "WARNING: Keep out of reach of children"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "allergens" in fields
+        assert "Milk" in fields["allergens"]["normalized_value"]
+        assert "storage_instructions" in fields
+        assert "cool dry place" in fields["storage_instructions"]["normalized_value"]
+        assert "usage_instructions" in fields
+        assert "2 spoons" in fields["usage_instructions"]["normalized_value"]
+        assert "warnings" in fields
+        assert "children" in fields["warnings"]["normalized_value"]
+
+    def test_nutrition_structured(self):
+        tokens = [
+            make_token("t1", "Nutrition Facts"),
+            make_token("t2", "Energy 100 kcal"),
+            make_token("t3", "Protein 5g"),
+            make_token("t4", "Sodium 20mg"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        assert "nutrition" in fields
+        nutrients = fields["nutrition"]["normalized_value"]
+        assert type(nutrients) is dict
+        assert nutrients["energy"] == "100 kcal"
+        assert nutrients["protein"] == "5g"
+        assert nutrients["sodium"] == "20mg"

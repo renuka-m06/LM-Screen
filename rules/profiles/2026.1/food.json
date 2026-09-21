@@ -14,6 +14,36 @@
       "failure_status": "POTENTIAL_NON_COMPLIANCE",
       "uncertain_status": "NEEDS_REVIEW",
       "legal_reference": "FSSAI Packaging & Labelling Regulations & Legal Metrology Rules"
+    },
+    {
+      "rule_id": "LM_FOOD002",
+      "name": "FSSAI License Declaration",
+      "description": "Checks for visible 14-digit FSSAI license number.",
+      "applies_when": { "product_category": ["food", "beverage"] },
+      "required_fields": ["fssai_license"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "FSSAI Packaging & Labelling Regulations"
+    },
+    {
+      "rule_id": "LM_FOOD003",
+      "name": "Batch / Lot Number",
+      "description": "Checks for visible Batch or Lot number.",
+      "applies_when": { "product_category": ["food", "beverage"] },
+      "required_fields": ["batch_number"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "Rule 6(1)(e) Legal Metrology"
+    },
+    {
+      "rule_id": "LM_FOOD004",
+      "name": "Ingredients List",
+      "description": "Checks for visible Ingredients declaration.",
+      "applies_when": { "product_category": ["food", "beverage"] },
+      "required_fields": ["ingredients"],
+      "failure_status": "POTENTIAL_NON_COMPLIANCE",
+      "uncertain_status": "NEEDS_REVIEW",
+      "legal_reference": "FSSAI Packaging & Labelling Regulations"
     }
   ]
 }

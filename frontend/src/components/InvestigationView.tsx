@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getProductIntelligence, listProducts, getScanResult, submitOfficerReview } from '../api';
-import type { ScanResult } from '../types';
+import { getProductIntelligence, listProducts, getScanResult, submitOfficerReview, getScanFindings, correctEvidence } from '../api';
+import type { ScanResult, Finding } from '../types';
 import {
   ArrowLeft, Shield, AlertTriangle, CheckCircle2, HelpCircle,
   Users, Search, ClipboardList, TrendingUp, FileText, ChevronDown,
@@ -59,6 +59,8 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'scans' | 'signals' | 'audit'>('overview');
   const [expandedScan, setExpandedScan] = useState<string | null>(null);
+  const [expandedFindings, setExpandedFindings] = useState<Finding[]>([]);
+  const [loadingFindings, setLoadingFindings] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>(productId);
 
@@ -126,6 +128,24 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
       setSubmitError(err.message || 'Unable to save this review. Please try again.');
     } finally {
       setSubmittingReview(false);
+    }
+  };
+
+  const handleScanExpand = async (clickedScanId: string) => {
+    if (expandedScan === clickedScanId) {
+      setExpandedScan(null);
+      return;
+    }
+    setExpandedScan(clickedScanId);
+    setLoadingFindings(true);
+    try {
+      const data = await getScanFindings(clickedScanId);
+      setExpandedFindings(data.findings || []);
+    } catch (err) {
+      console.error('Failed to load findings:', err);
+      setExpandedFindings([]);
+    } finally {
+      setLoadingFindings(false);
     }
   };
 
@@ -515,7 +535,7 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                       <div
                         className="glass-card"
                         style={{ padding: '12px 16px', cursor: 'pointer' }}
-                        onClick={() => setExpandedScan(expandedScan === scan.scan_id ? null : scan.scan_id)}
+                        onClick={() => handleScanExpand(scan.scan_id)}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -536,44 +556,71 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                         </div>
                       </div>
 
-                      {/* Expanded Scan Detail */}
+                      {/* Expanded Scan Detail: Evidence Graph Layer */}
                       {expandedScan === scan.scan_id && (
                         <div style={{
                           marginTop: '4px', padding: '16px', borderRadius: '10px',
                           background: 'var(--color-subtle-bg)', border: '1px solid var(--border-color)'
                         }}>
-                          {/* Extracted Fields */}
-                          {Object.keys(scan.extracted_fields).length > 0 && (
-                            <div style={{ marginBottom: '14px' }}>
-                              <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Extracted Declarations</p>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '6px' }}>
-                                {Object.entries(scan.extracted_fields).map(([key, value]: [string, any]) => (
-                                  <div key={key} style={{ padding: '8px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block' }}>{key.replace(/_/g, ' ')}</span>
-                                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{value}</span>
-                                  </div>
-                                ))}
-                              </div>
+                          <p style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <TrendingUp size={14} color="var(--color-primary)" /> Evidence Chain
+                          </p>
+                          
+                          {loadingFindings ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                              Loading evidence graph...
                             </div>
-                          )}
-
-                          {/* Rule Results */}
-                          {scan.rule_results.length > 0 && (
-                            <div>
-                              <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase' }}>Rule Checks</p>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {scan.rule_results.map((rule: any, i: number) => (
-                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', fontSize: '0.78rem' }}>
-                                    <div>
-                                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{rule.rule_name}</span>
-                                      {rule.reason && <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>— {rule.reason}</span>}
+                          ) : expandedFindings.length === 0 ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                              No traceable evidence found for this scan.
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                              {expandedFindings.map((finding: Finding) => (
+                                <div key={finding.finding_id} style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                      <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: 'var(--color-subtle-bg)', color: 'var(--text-primary)', textTransform: 'uppercase' }}>
+                                        {finding.field.replace(/_/g, ' ')}
+                                      </span>
+                                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                        {finding.rule_reference}
+                                      </span>
                                     </div>
-                                    <span style={{ fontWeight: 700, color: rule.status === 'PASS' ? 'var(--accent-pass)' : rule.status === 'POTENTIAL_NON_COMPLIANCE' ? 'var(--accent-potential)' : 'var(--accent-review)' }}>
-                                      {rule.status}
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: finding.status === 'PASS' ? 'var(--accent-pass)' : finding.status === 'POTENTIAL_NON_COMPLIANCE' ? 'var(--accent-potential)' : 'var(--accent-review)' }}>
+                                      {finding.status}
                                     </span>
                                   </div>
-                                ))}
-                              </div>
+
+                                  <div style={{ background: 'var(--color-subtle-bg)', padding: '10px', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>
+                                    {finding.explanation}
+                                  </div>
+
+                                  {/* Officer Correction UI */}
+                                  {finding.evidence_ids && finding.evidence_ids.length > 0 && userRole === 'OFFICER' && (
+                                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed var(--border-color)' }}>
+                                      <form onSubmit={async (e) => {
+                                        e.preventDefault();
+                                        const form = e.target as HTMLFormElement;
+                                        const val = (form.elements.namedItem('correct_val') as HTMLInputElement).value;
+                                        if (val) {
+                                          try {
+                                            await correctEvidence(scan.scan_id, finding.evidence_ids[0], val, 'Manual Officer Correction', userRole);
+                                            alert('Evidence corrected successfully.');
+                                            handleScanExpand(scan.scan_id); // Refresh
+                                          } catch (err: any) {
+                                            alert(err.message || 'Correction failed');
+                                          }
+                                        }
+                                      }} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <Shield size={14} color="var(--accent-review)" />
+                                        <input name="correct_val" type="text" placeholder={`Correct ${finding.field}...`} defaultValue={finding.observed_value || ''} style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '0.8rem' }} />
+                                        <button type="submit" style={{ padding: '6px 12px', borderRadius: '6px', background: 'var(--accent-review)', color: '#fff', border: 'none', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>Override</button>
+                                      </form>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>

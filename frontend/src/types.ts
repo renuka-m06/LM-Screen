@@ -32,6 +32,18 @@ export interface RuleCheck {
   evidence_ids?: string[];
 }
 
+export interface Finding {
+  finding_id: string;
+  scan_id: string;
+  field: string;
+  observed_value: string | null;
+  rule_reference: string;
+  status: string;
+  explanation: string;
+  evidence_ids: string[];
+  created_at: string;
+}
+
 export interface IdentityWarning {
   type: string; // PRODUCT_IDENTITY_MISMATCH | GTIN_CONSISTENCY_WARNING
   severity: string;

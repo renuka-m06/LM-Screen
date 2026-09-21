@@ -458,6 +458,66 @@ def get_scan_evidence(scan_id: str, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/{scan_id}/findings")
+def get_scan_findings(scan_id: str, db: Session = Depends(get_db)):
+    """Returns all findings (Rule Results + Evidence) with explanations for a scan."""
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan record not found.")
+
+    findings = []
+    
+    # Map extracted fields for easy lookup
+    fields_map = {f.field_name: f for f in scan.extracted_fields}
+
+    for idx, rule_result in enumerate(scan.rule_results):
+        # Determine the primary field this rule applies to.
+        # This uses the reason text or a direct mapping.
+        primary_field = None
+        for field_name in fields_map.keys():
+            if rule_result.reason and field_name in rule_result.reason:
+                primary_field = field_name
+                break
+        
+        # Fallbacks for specific rules if reason doesn't explicitly mention the field
+        if not primary_field:
+            if "MRP" in rule_result.rule_name.upper(): primary_field = "mrp"
+            elif "NET QTY" in rule_result.rule_name.upper(): primary_field = "net_quantity"
+            elif "FSSAI" in rule_result.rule_name.upper(): primary_field = "fssai_license"
+            elif "MFG" in rule_result.rule_name.upper(): primary_field = "mfg_date"
+
+        extracted_field = fields_map.get(primary_field) if primary_field else None
+
+        # Build Explanation
+        if rule_result.status == "PASS":
+            explanation = f"Compliance verified for {primary_field or 'rule'}.\n\n"
+        else:
+            explanation = f"Potential issue detected for {primary_field or 'rule'}.\n\n"
+            
+        if extracted_field and extracted_field.raw_value:
+            explanation += f"Observed evidence:\n\"{extracted_field.raw_value}\"\n\n"
+        else:
+            explanation += "Observed evidence:\n[No evidence detected]\n\n"
+
+        explanation += f"Applicable requirement:\n{rule_result.rule_name}\n\n"
+        explanation += f"Evidence source:\n{extracted_field.source_type if extracted_field else 'OCR'}\n\n"
+        explanation += "Officer verification:\nPending"
+
+        findings.append({
+            "finding_id": rule_result.id,
+            "scan_id": scan_id,
+            "field": primary_field or "general",
+            "observed_value": extracted_field.normalized_value if extracted_field else None,
+            "rule_reference": rule_result.rule_name,
+            "status": rule_result.status,
+            "explanation": explanation,
+            "evidence_ids": [extracted_field.id] if extracted_field else [],
+            "created_at": rule_result.evaluated_at.isoformat()
+        })
+
+    return {"findings": findings}
+
+
 @router.get("/{scan_id}/evidence-graph")
 def get_scan_evidence_graph(scan_id: str, db: Session = Depends(get_db)):
     """Returns the explicit Node-Edge Evidence Graph for a scan."""

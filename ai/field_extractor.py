@@ -21,7 +21,7 @@ class FieldExtractor:
     # A numeric value is ONLY accepted as MRP when it appears in the same line
     # or immediately adjacent line as one of these explicit indicator tokens.
     _MRP_ANCHOR_RE = re.compile(
-        r"\bm\.?r\.?p\.?\b|\bmaximum\s+retail\s+price\b|\bmax\.?\s*retail\b",
+        r"\bm[\s\.\-\_]*r[\s\.\-\_]*p[\s\.\-\_]*\b|\bmaximum\s+retail\s+price\b|\bmax\.?\s*retail\b",
         re.IGNORECASE,
     )
     # Nutrition-contamination guard — numbers that appear alongside these units
@@ -35,7 +35,7 @@ class FieldExtractor:
     # Max gap between keyword and number is kept short (35 chars) to avoid cross-line
     # matches on the joined full-text string.
     _MRP_LINE_RE = re.compile(
-        r"(?:m\.?r\.?p\.?|max(?:imum)?\s*retail\s*price|max\.?\s*retail)"
+        r"(?:m[\s\.\-\_]*r[\s\.\-\_]*p[\s\.\-\_]*|max(?:imum)?\s*retail\s*price|max\.?\s*retail)"
         r"[^0-9\n]{0,35}?(?:rs\.?\s*|r[58s]\.?\s*|inr\s*|₹\s*)?([0-9]+(?:\.[0-9]{1,2})?)",
         re.IGNORECASE,
     )
@@ -175,7 +175,7 @@ class FieldExtractor:
 
         # Manufacturer / Packer / Importer (handles OCR variants like Manulactured)
         self.manufacturer_pattern = re.compile(
-            r"(?:manufactured\s*(?:&|and)?\s*packed\s*by|manulactured\s*(?:&|and)?\s*packed\s*by|packed\s*(?:&|and)?\s*marketed\s*by|manufactured\s*by|manulactured\s*by|mfg\.?\s*(?:&|and)?\s*pkd\.?\s*by|mfg\.?\s*by|mfd\.?\s*by|packed\s*by|marketed\s*by|imported\s*by)[:\s]*([^\n,]{3,60}?)(?=\s*(?:\n|,|address|123|plot|street|road|gst|gstin|consumer|net|mfd|mfg|best|exp|call|email|$))",
+            r"(manufactured\s*(?:&|and)?\s*packed\s*by|manulactured\s*(?:&|and)?\s*packed\s*by|packed\s*(?:&|and)?\s*marketed\s*by|manufactured\s*by|manulactured\s*by|mfg\.?\s*(?:&|and)?\s*pkd\.?\s*by|mfg\.?\s*by|mfd\.?\s*by|packed\s*by|marketed\s*by|imported\s*by|packer|manufacturer)[:\s]*([^\n,]{3,60}?)(?=\s*(?:\n|,|address|123|plot|street|road|gst|gstin|consumer|net|mfd|mfg|best|exp|call|email|$))",
             re.IGNORECASE
         )
 
@@ -196,9 +196,100 @@ class FieldExtractor:
             re.IGNORECASE
         )
 
+        # Dimensions
+        self.dimensions_pattern = re.compile(
+            r"(?:length|breadth|width|thickness|diameter|size)[:\s]*([0-9]+(?:\.[0-9]+)?\s*(?:cm|m|mm|inches?|in))\b",
+            re.IGNORECASE
+        )
+
+        # FSSAI License Number
+        self.fssai_pattern = re.compile(
+            r"(?:fssai|lic(?:\.|ence|ense)?\s*no\.?)[:\s]*([0-9]{14})\b",
+            re.IGNORECASE
+        )
+
+        # Batch / Lot Number
+        self.batch_pattern = re.compile(
+            r"(?:batch(?:\s*no\.?)?|lot(?:\s*no\.?)?|b\.?\s*no\.?)[:\s]*([A-Za-z0-9\-\/]{3,15})\b",
+            re.IGNORECASE
+        )
+
+        # Ingredients
+        self.ingredients_pattern = re.compile(
+            r"(?:ingredients?|contains)[:\s]*([^\n]{3,200}?)(?=\s*(?:\n|mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|$))",
+            re.IGNORECASE
+        )
+
         # Product name — exclusions for statutory field labels, address lines, and company registration headers
         self.product_name_exclusions = re.compile(
             r"^(?:mrp|net|mfg|mfd|mig|pkd|best|exp|consumer|call|email|gstin|gtin|fssai|ingredients|nutrition|address|regd|plot|tel|manufactured|manulactured|packed|imported|marketed|country|industrial|area|street|road|floor|suite|building|pincode|pvt|ltd|corp|inc|co|house|box|phase|sector|nagar|marg|highway|dist|state)",
+            re.IGNORECASE
+        )
+
+        # ── NEW EXPANSION FIELDS ──
+        
+        self.brand_name_pattern = re.compile(
+            r"(?:brand(?:\s*name)?)[:\s]*([A-Za-z0-9\s\&\'\-]{3,30})(?=\s*(?:\n|,|product|variant|mrp|net|mfd|mfg|best|exp|call|email|fssai|ingredients|nutrition|$))",
+            re.IGNORECASE
+        )
+
+        self.variant_pattern = re.compile(
+            r"(?:variant|flavour|flavor|type|style|model|version)[:\s]*([A-Za-z0-9\s\&\'\-]{3,30})(?=\s*(?:\n|,|brand|product|mrp|net|mfd|mfg|best|exp|call|email|fssai|ingredients|nutrition|$))",
+            re.IGNORECASE
+        )
+
+        self.model_number_pattern = re.compile(
+            r"(?:model\s*(?:no\.?|number)?|article\s*(?:no\.?|number)?|reference\s*(?:no\.?|number)?|ref\s*(?:no\.?|number)?)[:\s]*([A-Za-z0-9\-\/]{3,20})\b",
+            re.IGNORECASE
+        )
+
+        self.sku_pattern = re.compile(
+            r"(?:sku(?:\s*no\.?)?|stock\s*keeping\s*unit)[:\s]*([A-Za-z0-9\-\/]{3,20})\b",
+            re.IGNORECASE
+        )
+
+        self.serial_number_pattern = re.compile(
+            r"(?:serial\s*(?:no\.?|number)?|s\/n|s\.no\.?)[:\s]*([A-Za-z0-9\-\/]{3,20})\b",
+            re.IGNORECASE
+        )
+
+        self.website_pattern = re.compile(
+            r"(?:website|web|site)[:\s]*([a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,6}(?:\/[a-zA-Z0-9\.\-]*)*)|(?:www\.[a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,6})|(?:https?:\/\/[a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,6})",
+            re.IGNORECASE
+        )
+
+        self.email_pattern = re.compile(
+            r"(?:email|e[-\s]?mail)[:\s]*([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})",
+            re.IGNORECASE
+        )
+
+        self.certifications_pattern = re.compile(
+            r"(fssai|isi|bis|agmark|hallmark|lic(?:\.|ense|ence)?(?:\s*no\.?)?|certification)[^0-9\n]{0,15}?([A-Za-z0-9\-\/]{6,20})\b",
+            re.IGNORECASE
+        )
+
+        self.allergens_pattern = re.compile(
+            r"(?:allergens?|allergen\s*information|contains|may\s*contain)[:\s]*([^\n]{3,150}?)(?=\s*(?:\n|mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|ingredients|$))",
+            re.IGNORECASE
+        )
+
+        self.storage_pattern = re.compile(
+            r"(?:storage(?: instructions)?|store\s*in|keep\s*refrigerated|keep\s*in\s*a\s*cool\s*dry\s*place)[:\s]*([\s\S]{3,150}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|ingredients|usage|directions|$))",
+            re.IGNORECASE
+        )
+
+        self.usage_pattern = re.compile(
+            r"(?:directions(?: for use)?|how\s*to\s*use|usage(?: instructions)?|instructions)[:\s]*([\s\S]{3,150}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|ingredients|storage|$))",
+            re.IGNORECASE
+        )
+
+        self.warnings_pattern = re.compile(
+            r"(?:warnings?|cautions?|warning\s*statements?|important|keep\s*out\s*of\s*reach\s*of\s*children)[:\s]*([\s\S]{3,200}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|ingredients|storage|usage|$))",
+            re.IGNORECASE
+        )
+
+        self.nutrition_pattern = re.compile(
+            r"(?:nutrition\s*facts|nutritional\s*information|nutrition\s*information)[:\s]*([\s\S]{10,500}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|fssai|ingredients|address|$))",
             re.IGNORECASE
         )
 
@@ -468,41 +559,48 @@ class FieldExtractor:
             }
 
         # ── 10. Manufacturer / Packer ────────────────────────────────────────────
-        mfg_kw_found = any(k in full_text.lower() for k in [
-            "mfg by", "manufactured by", "packed by", "mfg. by", "mfd. by",
-            "manufactured & packed by", "marketed by", "manufactured and packed by",
-            "packer", "manufacturer"
-        ])
-        if mfg_kw_found:
-            mfg_name_match = self.manufacturer_pattern.search(full_text)
-            if mfg_name_match:
-                mfg_val = mfg_name_match.group(1).strip()
-                # Sanity check: extracted name should have at least 2 words or be plausible
-                if len(mfg_val) >= 3:
-                    matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by", "pvt", "ltd", "foods", "agro"])]
-                    extracted["manufacturer_or_packer"] = {
-                        "field_name": "manufacturer_or_packer",
-                        "raw_value": mfg_name_match.group(0),
-                        "normalized_value": mfg_val,
-                        "confidence": 0.88,
-                        "ocr_evidence_ids": matched_ids,
-                        "extraction_method": "KEYWORD_ANCHOR",
-                        "evidence_state": "PRESENT"
-                    }
-                else:
-                    # Keyword found but name not reliably extracted — UNCERTAIN
-                    matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by"])]
-                    extracted["manufacturer_or_packer"] = {
-                        "field_name": "manufacturer_or_packer",
-                        "raw_value": "Manufacturer/packer keyword detected",
-                        "normalized_value": "[Manufacturer declared — name extraction uncertain]",
-                        "confidence": 0.55,
-                        "ocr_evidence_ids": matched_ids,
-                        "extraction_method": "KEYWORD_ANCHOR",
-                        "evidence_state": "UNCERTAIN"
-                    }
+        mfg_name_match = self.manufacturer_pattern.search(full_text)
+        if mfg_name_match:
+            role_kw = mfg_name_match.group(1).lower().strip()
+            if "pack" in role_kw:
+                field_key = "packer_name"
+            elif "import" in role_kw:
+                field_key = "importer_name"
+            elif "market" in role_kw:
+                field_key = "marketer_name"
             else:
-                # Keyword found but regex couldn't parse name
+                field_key = "manufacturer_name"
+                
+            mfg_val = mfg_name_match.group(2).strip()
+            if len(mfg_val) >= 3:
+                matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by", "pvt", "ltd", "foods", "agro"])]
+                extracted[field_key] = {
+                    "field_name": field_key,
+                    "raw_value": mfg_name_match.group(0),
+                    "normalized_value": mfg_val,
+                    "confidence": 0.88,
+                    "ocr_evidence_ids": matched_ids,
+                    "extraction_method": "KEYWORD_ANCHOR",
+                    "evidence_state": "PRESENT"
+                }
+            else:
+                matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by"])]
+                extracted[field_key] = {
+                    "field_name": field_key,
+                    "raw_value": f"{field_key.replace('_', ' ').capitalize()} keyword detected",
+                    "normalized_value": f"[{field_key.replace('_', ' ').capitalize()} declared — name extraction uncertain]",
+                    "confidence": 0.55,
+                    "ocr_evidence_ids": matched_ids,
+                    "extraction_method": "KEYWORD_ANCHOR",
+                    "evidence_state": "UNCERTAIN"
+                }
+        else:
+            mfg_kw_found = any(k in full_text.lower() for k in [
+                "mfg by", "manufactured by", "packed by", "mfg. by", "mfd. by",
+                "manufactured & packed by", "marketed by", "manufactured and packed by",
+                "packer", "manufacturer"
+            ])
+            if mfg_kw_found:
                 matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by"])]
                 extracted["manufacturer_or_packer"] = {
                     "field_name": "manufacturer_or_packer",
@@ -514,23 +612,331 @@ class FieldExtractor:
                     "evidence_state": "UNCERTAIN"
                 }
 
-        # ── 11. Address ──────────────────────────────────────────────────────────
-        addr_keywords = ["address", "regd off", "plot no", "street", "road", "noida", "mumbai",
+        # ── 11. Address and PIN code ─────────────────────────────────────────────
+        pin_match = self.pincode_pattern.search(full_text)
+        if pin_match:
+            pin_val = pin_match.group(1)
+            matched_ids = [t["id"] for t in ocr_tokens if pin_val in t["text"]]
+            extracted["pin_code"] = {
+                "field_name": "pin_code",
+                "raw_value": pin_val,
+                "normalized_value": pin_val,
+                "confidence": 0.95,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+        
+        addr_keywords = ["address", "regd off", "plot", "street", "road", "noida", "mumbai",
                          "delhi", "bengaluru", "bangalore", "up", "uttar pradesh", "maharashtra",
                          "india", "industrial area", "phase", "sector", "andheri", "pune"]
-        addr_found = any(k in full_text.lower() for k in addr_keywords)
-        pin_match = self.pincode_pattern.search(full_text)
-        if addr_found or pin_match:
-            addr_tokens = [t["text"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords)]
-            addr_val = ", ".join(addr_tokens) if addr_tokens else "Address declared"
-            matched_ids = [t["id"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords)]
+        
+        # Overhaul address extraction: Instead of joining tokens containing keywords, we extract the block
+        addr_match = re.search(r"(?:address|regd\.?\s*off\.?|registered\s*office|mfg\.?\s*unit)[:\s]*([\s\S]{10,250}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|$))", full_text, re.IGNORECASE)
+        if addr_match:
+            addr_val = addr_match.group(1).replace("\n", ", ").strip()
+            matched_ids = [t["id"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords) or (pin_match and pin_match.group(1) in t["text"])]
             extracted["address"] = {
                 "field_name": "address",
-                "raw_value": addr_val,
+                "raw_value": addr_match.group(0),
                 "normalized_value": addr_val,
+                "confidence": 0.88,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "KEYWORD_ANCHOR",
+                "evidence_state": "PRESENT"
+            }
+        else:
+            # Fallback: spatial block or robust keyword fallback if no clear start keyword
+            addr_found = any(k in full_text.lower() for k in addr_keywords)
+            if addr_found:
+                fallback_idx = full_text.lower().find("address")
+                if fallback_idx == -1 and pin_match:
+                    fallback_idx = max(0, pin_match.start() - 40)
+                elif fallback_idx == -1:
+                    for kw in addr_keywords:
+                        idx = full_text.lower().find(kw)
+                        if idx != -1:
+                            fallback_idx = idx
+                            break
+                
+                if fallback_idx != -1:
+                    addr_val = full_text[fallback_idx:fallback_idx+150].strip()
+                    matched_ids = [t["id"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords)]
+                    extracted["address"] = {
+                        "field_name": "address",
+                        "raw_value": "Address snippet extracted",
+                        "normalized_value": addr_val,
+                        "confidence": 0.65,
+                        "ocr_evidence_ids": matched_ids,
+                        "extraction_method": "HEURISTIC_FALLBACK",
+                        "evidence_state": "UNCERTAIN"
+                    }
+
+
+        # ── 11b. Batch / Lot Number ──────────────────────────────────────────────
+        batch_match = self.batch_pattern.search(full_text)
+        if batch_match:
+            val = batch_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"] or any(kw in t["text"].lower() for kw in ["batch", "lot"])]
+            extracted["batch_number"] = {
+                "field_name": "batch_number",
+                "raw_value": batch_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.90,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── 11c. Ingredients ─────────────────────────────────────────────────────
+        ing_match = self.ingredients_pattern.search(full_text)
+        if ing_match:
+            val = ing_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if any(kw in t["text"].lower() for kw in ["ingredient", "contains"])]
+            extracted["ingredients"] = {
+                "field_name": "ingredients",
+                "raw_value": ing_match.group(0),
+                "normalized_value": val,
                 "confidence": 0.85,
                 "ocr_evidence_ids": matched_ids,
                 "extraction_method": "KEYWORD_ANCHOR",
+                "evidence_state": "PRESENT"
+            }
+            
+        # ── 11d. Dimensions ──────────────────────────────────────────────────────
+        dim_match = self.dimensions_pattern.search(full_text)
+        if dim_match:
+            val = dim_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"] or any(kw in t["text"].lower() for kw in ["length", "width", "size", "cm"])]
+            extracted["dimensions"] = {
+                "field_name": "dimensions",
+                "raw_value": dim_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.88,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Brand Name ────────────────────────────────────────────────
+        brand_match = self.brand_name_pattern.search(full_text)
+        if brand_match:
+            val = brand_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val.lower() in t["text"].lower() or "brand" in t["text"].lower()]
+            extracted["brand_name"] = {
+                "field_name": "brand_name",
+                "raw_value": brand_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.85,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Product Variant ───────────────────────────────────────────
+        variant_match = self.variant_pattern.search(full_text)
+        if variant_match:
+            val = variant_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val.lower() in t["text"].lower()]
+            extracted["product_variant"] = {
+                "field_name": "product_variant",
+                "raw_value": variant_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.85,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Model Number ──────────────────────────────────────────────
+        model_match = self.model_number_pattern.search(full_text)
+        if model_match:
+            val = model_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"]]
+            extracted["model_number"] = {
+                "field_name": "model_number",
+                "raw_value": model_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.90,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: SKU ───────────────────────────────────────────────────────
+        sku_match = self.sku_pattern.search(full_text)
+        if sku_match:
+            val = sku_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"]]
+            extracted["sku"] = {
+                "field_name": "sku",
+                "raw_value": sku_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.90,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Serial Number ─────────────────────────────────────────────
+        sn_match = self.serial_number_pattern.search(full_text)
+        if sn_match:
+            val = sn_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"]]
+            extracted["serial_number"] = {
+                "field_name": "serial_number",
+                "raw_value": sn_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.90,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Website & Email ───────────────────────────────────────────
+        web_match = self.website_pattern.search(full_text)
+        if web_match:
+            val = web_match.group(1) or web_match.group(0)
+            val = val.strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"]]
+            extracted["website"] = {
+                "field_name": "website",
+                "raw_value": web_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.95,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+        
+        email_match = self.email_pattern.search(full_text)
+        if email_match:
+            val = email_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if val in t["text"]]
+            extracted["email"] = {
+                "field_name": "email",
+                "raw_value": email_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.95,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Certifications Array ──────────────────────────────────────
+        cert_matches = list(self.certifications_pattern.finditer(full_text))
+        if cert_matches:
+            certs = []
+            for match in cert_matches:
+                c_type = match.group(1).upper()
+                if "FSSAI" in c_type:
+                    c_type = "FSSAI"
+                elif "LICEN" in c_type:
+                    c_type = "LICENSE"
+                
+                c_num = match.group(2).strip()
+                certs.append({"type": c_type, "number": c_num})
+                
+                # Maintain backwards compatibility for FSSAI
+                if c_type == "FSSAI" and "fssai_license" not in extracted:
+                    extracted["fssai_license"] = {
+                        "field_name": "fssai_license",
+                        "raw_value": match.group(0),
+                        "normalized_value": c_num,
+                        "confidence": 0.95,
+                        "ocr_evidence_ids": [],
+                        "extraction_method": "REGEX_PATTERN",
+                        "evidence_state": "PRESENT"
+                    }
+
+            extracted["certifications"] = {
+                "field_name": "certifications",
+                "raw_value": " | ".join([m.group(0) for m in cert_matches]),
+                "normalized_value": certs,
+                "confidence": 0.95,
+                "ocr_evidence_ids": [],
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+            
+        # ── EXPANSION: Allergens ─────────────────────────────────────────────────
+        allergen_match = self.allergens_pattern.search(full_text)
+        if allergen_match:
+            val = allergen_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if "allergen" in t["text"].lower() or "contain" in t["text"].lower()]
+            extracted["allergens"] = {
+                "field_name": "allergens",
+                "raw_value": allergen_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.85,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Storage & Usage ───────────────────────────────────────────
+        storage_match = self.storage_pattern.search(full_text)
+        if storage_match:
+            val = storage_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if "storage" in t["text"].lower() or "store" in t["text"].lower()]
+            extracted["storage_instructions"] = {
+                "field_name": "storage_instructions",
+                "raw_value": storage_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.85,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+            
+        usage_match = self.usage_pattern.search(full_text)
+        if usage_match:
+            val = usage_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if "usage" in t["text"].lower() or "direction" in t["text"].lower()]
+            extracted["usage_instructions"] = {
+                "field_name": "usage_instructions",
+                "raw_value": usage_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.85,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Warnings ──────────────────────────────────────────────────
+        warn_match = self.warnings_pattern.search(full_text)
+        if warn_match:
+            val = warn_match.group(1).strip()
+            matched_ids = [t["id"] for t in ocr_tokens if "warning" in t["text"].lower() or "caution" in t["text"].lower()]
+            extracted["warnings"] = {
+                "field_name": "warnings",
+                "raw_value": warn_match.group(0),
+                "normalized_value": val,
+                "confidence": 0.85,
+                "ocr_evidence_ids": matched_ids,
+                "extraction_method": "REGEX_PATTERN",
+                "evidence_state": "PRESENT"
+            }
+
+        # ── EXPANSION: Nutritional Information ───────────────────────────────────
+        nutr_match = self.nutrition_pattern.search(full_text)
+        if nutr_match:
+            val = nutr_match.group(1).strip()
+            # Simple heuristic structured extraction inside nutrition block
+            nutrients = {}
+            for nut in ["energy", "protein", "carbohydrate", "sugars", "fat", "saturated_fat", "trans_fat", "fibre", "sodium", "salt"]:
+                # Matches nutrient name followed by number and unit (e.g. Protein 5g, Sodium 20 mg)
+                n_match = re.search(fr"{nut.replace('_', ' ')}[^0-9]{{0,10}}([0-9]+\.?[0-9]*\s*(?:g|mg|kcal|kj|%))", val, re.IGNORECASE)
+                if n_match:
+                    nutrients[nut] = n_match.group(1).strip()
+            
+            extracted["nutrition"] = {
+                "field_name": "nutrition",
+                "raw_value": nutr_match.group(0),
+                "normalized_value": nutrients if nutrients else val,  # fallback to raw text if struct fails
+                "confidence": 0.85,
+                "ocr_evidence_ids": [],
+                "extraction_method": "REGEX_PATTERN",
                 "evidence_state": "PRESENT"
             }
 

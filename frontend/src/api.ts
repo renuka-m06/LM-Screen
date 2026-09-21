@@ -62,6 +62,30 @@ export function generateNoticeUrl(scanId: string): string {
   return `${API_BASE_URL}/scans/${scanId}/notice`;
 }
 
+export async function getScanFindings(scanId: string): Promise<{ findings: any[] }> {
+  const response = await fetch(`${API_BASE_URL}/scans/${scanId}/findings`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch findings.');
+  }
+  return response.json();
+}
+
+export async function correctEvidence(scanId: string, evidenceId: string, correctedValue: string, reason: string, userRole: string = 'OFFICER') {
+  const response = await fetch(`${API_BASE_URL}/scans/${scanId}/evidence/${evidenceId}/correct`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Role': userRole,
+    },
+    body: JSON.stringify({ corrected_value: correctedValue, reason }),
+  });
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.detail || 'Failed to submit correction.');
+  }
+  return response.json();
+}
+
 export async function submitOfficerReview(
   payloadOrClusterId: string | { scan_id?: string; cluster_id?: string; product_id?: string; decision: string; rationale: string },
   decisionOrUserRole?: string,
