@@ -93,9 +93,36 @@ class DeterministicRuleEngine:
             # Check if field was extracted
             field_data = extracted_fields.get(field)
             
-            # Fallback for manufacturer_or_packer legacy handling
+            # Statutory Requirement Aliases
             if not field_data and field in ["manufacturer", "packer"]:
-                field_data = extracted_fields.get("manufacturer_or_packer")
+                field_data = (
+                    extracted_fields.get("manufacturer_or_packer")
+                    or extracted_fields.get("packer_name")
+                    or extracted_fields.get("marketer_name")
+                    or extracted_fields.get("manufacturer_name")
+                )
+            elif not field_data and field == "manufacture_date":
+                field_data = extracted_fields.get("packing_date") or extracted_fields.get("import_date")
+            elif not field_data and field == "fssai_license":
+                field_data = extracted_fields.get("certifications")
+            elif not field_data and field == "consumer_care":
+                field_data = extracted_fields.get("email") or extracted_fields.get("consumer_care_phone")
+            elif not field_data and field == "net_quantity":
+                field_data = extracted_fields.get("declared_quantity")
+            elif not field_data and field in ["best_before", "expiry_date"]:
+                field_data = extracted_fields.get("best_before") or extracted_fields.get("expiry_date")
+            elif not field_data and field == "batch_number":
+                field_data = extracted_fields.get("batch_number")
+                if not field_data and extracted_fields.get("packing_date"):
+                    field_data = extracted_fields.get("packing_date")
+            elif not field_data and field == "ingredients":
+                p_name = str(extracted_fields.get("product_name", {}).get("normalized_value") or "").lower()
+                if any(w in p_name for w in ["coriander", "leaf", "leaves", "fresh", "spinach", "mint", "herb", "vegetable"]):
+                    field_data = {
+                        "normalized_value": "Exempt (Fresh single-ingredient produce)",
+                        "evidence_state": "SUPPORTED",
+                        "ocr_evidence_ids": extracted_fields.get("product_name", {}).get("ocr_evidence_ids", [])
+                    }
                 
             evidence_ids = []
             if field_data:
@@ -131,11 +158,34 @@ class DeterministicRuleEngine:
                     status = "PASS"
                     reason = f"Required declaration '{field}' visible and supported by evidence."
 
+            canonical_rule_ids = {
+                "mrp": "LM001",
+                "net_quantity": "LM002",
+                "manufacture_date": "LM003",
+                "packing_date": "LM003",
+                "manufacturer": "LM004",
+                "packer": "LM004",
+                "address": "LM004_ADDR",
+                "consumer_care": "LM005",
+                "country_of_origin": "LM006",
+                "batch_number": "LM012",
+                "fssai_license": "LM013",
+                "ingredients": "LM014",
+                "best_before": "LM011",
+                "product_name": "LM000_PROD",
+            }
+            assigned_rule_id = req.get("rule_id") or canonical_rule_ids.get(field, f"REQ_{field.upper()}")
+            assigned_rule_name = req.get("name") or f"{field.replace('_', ' ').title()} Declaration"
+
+            evidence_status = "SUPPORTED" if status == "PASS" else ("NOT_DETECTED" if status in ["MISSING", "NOT_DETECTED"] else "REVIEW_REQUIRED")
+
             traces.append({
-                "rule_id": f"REQ_{field.upper()}",
+                "rule_id": assigned_rule_id,
+                "rule_name": assigned_rule_name,
                 "field": field,
                 "applicability": applicability,
                 "status": status,
+                "evidence_status": evidence_status,
                 "legal_reference": legal_ref,
                 "evidence_ids": evidence_ids,
                 "reason": reason

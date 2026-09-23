@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getProductIntelligence, listProducts, getScanResult, submitOfficerReview, getScanFindings, correctEvidence } from '../api';
 import type { ScanResult, Finding } from '../types';
+import { formatFieldValue } from '../utils';
 import {
   ArrowLeft, Shield, AlertTriangle, CheckCircle2, HelpCircle,
   Users, Search, ClipboardList, TrendingUp, FileText, ChevronDown,
@@ -843,7 +844,7 @@ export const InvestigationView: React.FC<InvestigationViewProps> = ({ productId,
                                           <>
                                             <div style={{ marginBottom: '6px' }}>
                                               <span style={{ color: 'var(--text-muted)' }}>Value: </span>
-                                              <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ev.normalized_value || 'None'}</span>
+                                              <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{formatFieldValue(ev.normalized_value) || 'None'}</span>
                                             </div>
                                             
                                             {(ev.model_name || ev.source === 'YOLO' || ev.source === 'HEURISTIC') && (

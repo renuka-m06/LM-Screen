@@ -39,6 +39,9 @@ data/*
 # Temporary Scratch Files
 scratch/
 scratch_out*.txt
+scratch*.py
+coriander_scan_result.json
+brain/
 
 # Test / demo databases (never commit)
 test_evidence.db

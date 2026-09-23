@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import type { OCRToken, ExtractedField } from '../types';
+import type { OCRToken } from '../types';
 import { Eye } from 'lucide-react';
+import { formatFieldValue } from '../utils';
 
 interface EvidenceOverlayProps {
   imageSrc: string;
   ocrTokens: OCRToken[];
-  extractedFields: Record<string, ExtractedField>;
+  extractedFields: any[]; // API returns array, not a keyed dict
   imageHash?: string;
 }
 
@@ -81,33 +82,39 @@ export const EvidenceOverlay: React.FC<EvidenceOverlayProps> = ({ imageSrc, ocrT
 
         {/* Fields List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '420px', overflowY: 'auto' }}>
-          {Object.entries(extractedFields).map(([key, field]) => (
-            <div
-              key={key}
-              className="glass-card"
-              style={{ padding: '10px 12px', borderLeft: '3px solid var(--color-primary)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                  {field.field_name.replace(/_/g, ' ')}
-                </span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--accent-pass)', fontWeight: 600 }}>
-                  {(field.confidence * 100).toFixed(0)}% Conf
-                </span>
+          {(extractedFields ?? []).filter((f: any) => f?.type !== 'DETECTION' && (f?.field || f?.field_name)).map((field: any, idx: number) => {
+            const rawVal = formatFieldValue(field.raw_text ?? field.raw_value);
+            const methodVal = formatFieldValue(field.method ?? field.extraction_method);
+            return (
+              <div
+                key={field.field ?? field.field_name ?? idx}
+                className="glass-card"
+                style={{ padding: '10px 12px', borderLeft: '3px solid var(--color-primary)' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {String(field.field ?? field.field_name ?? 'unknown').replace(/_/g, ' ')}
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--accent-pass)', fontWeight: 600 }}>
+                    {typeof field.confidence === 'number' ? `${(field.confidence * 100).toFixed(0)}% Conf` : ''}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px', wordBreak: 'break-word' }}>
+                  {formatFieldValue(field.value ?? field.normalized_value)}
+                </div>
+                {rawVal !== '—' && rawVal !== '' && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                    Raw: "{rawVal}"
+                  </div>
+                )}
+                <div style={{ fontSize: '0.70rem', color: 'var(--color-primary)', marginTop: '4px', fontStyle: 'italic' }}>
+                  Method: {methodVal === '—' ? 'OCR' : methodVal}
+                </div>
               </div>
-              <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>
-                {field.normalized_value}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                Raw: "{field.raw_value}"
-              </div>
-              <div style={{ fontSize: '0.70rem', color: 'var(--color-primary)', marginTop: '4px', fontStyle: 'italic' }}>
-                Method: {field.extraction_method}
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
-          {Object.keys(extractedFields).length === 0 && (
+          {(extractedFields ?? []).filter((f: any) => f?.type !== 'DETECTION' && (f?.field || f?.field_name)).length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px 20px', fontSize: '0.9rem', background: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
               <Eye size={24} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
               We couldn't find enough reliable evidence in this image.

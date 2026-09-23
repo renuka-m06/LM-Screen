@@ -6,7 +6,7 @@ import os
 
 from backend.app.config import settings
 from backend.app.database import engine, Base
-from backend.app.routers import scans, reports, officer, dashboard, auth, products, analytics
+from backend.app.routers import scans, reports, officer, dashboard, auth, products, analytics, cases
 
 # Initialize database tables on startup
 Base.metadata.create_all(bind=engine)
@@ -22,14 +22,20 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
 # Health Endpoint
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    from ai.ocr_engine import _reader_ready, _prewarmed_reader
+    ocr_ready = _reader_ready.is_set() and _prewarmed_reader is not None
+    return {
+        "status": "ok" if ocr_ready else "starting",
+        "service": "LM-Screen",
+        "ocr_ready": ocr_ready
+    }
 
 # Register Routers
 app.include_router(scans.router, prefix=settings.API_V1_PREFIX)
@@ -39,6 +45,7 @@ app.include_router(dashboard.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(products.router, prefix=settings.API_V1_PREFIX)
 app.include_router(analytics.router, prefix=settings.API_V1_PREFIX)
+app.include_router(cases.router, prefix=settings.API_V1_PREFIX)
 
 # Serve uploaded images statically
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

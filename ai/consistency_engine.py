@@ -28,6 +28,7 @@ class ConsistencyEngine:
             fields_by_name[name].append(f)
 
         checks.append(self._check_mrp_qty_usp(fields_by_name))
+        checks.append(self._check_quantity_declarations(fields_by_name))
         checks.append(self._check_barcode_ocr_gtin(fields_by_name, barcode_result))
         checks.append(self._check_manufacturer_importer(fields_by_name))
         checks.append(self._check_address_pin(fields_by_name))
@@ -58,6 +59,67 @@ class ConsistencyEngine:
             return match.group()
         return None
 
+    def _check_quantity_declarations(self, fields: Dict[str, List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+        check_type = "DUAL_QUANTITY_CONSISTENCY"
+        net_fields = fields.get("net_quantity", [])
+        dec_fields = fields.get("declared_quantity", [])
+
+        if not net_fields or not dec_fields:
+            return None
+
+        net_f = net_fields[0]
+        dec_f = dec_fields[0]
+
+        net_val = self._extract_number(str(net_f.get("value", "")))
+        net_unit = self._extract_unit(str(net_f.get("value", "")))
+        dec_val = self._extract_number(str(dec_f.get("value", "")))
+        dec_unit = self._extract_unit(str(dec_f.get("value", "")))
+
+        if net_val is None or dec_val is None:
+            return None
+
+        def to_base_grams(val, unit):
+            if not unit: return val
+            u = unit.lower()
+            if u in ["kg", "kilogram", "kilograms"]: return val * 1000.0
+            return val
+
+        net_g = to_base_grams(net_val, net_unit)
+        dec_g = to_base_grams(dec_val, dec_unit)
+
+        diff = abs(net_g - dec_g)
+        rel_diff = diff / max(net_g, dec_g) if max(net_g, dec_g) > 0 else 0
+
+        observed = {
+            "Declared Quantity": str(dec_f.get("value", "")),
+            "Net Quantity": str(net_f.get("value", "")),
+            "Normalized Declared": f"{dec_g:.1f} g",
+            "Normalized Net": f"{net_g:.1f} g",
+        }
+
+        evidence_ids = []
+        if net_f.get("ocr_evidence_ids"): evidence_ids.extend(net_f["ocr_evidence_ids"])
+        if dec_f.get("ocr_evidence_ids"): evidence_ids.extend(dec_f["ocr_evidence_ids"])
+
+        if rel_diff > 0.01:
+            return {
+                "check_id": generate_uuid(),
+                "check_type": check_type,
+                "status": "REVIEW_REQUIRED",
+                "observed_values": observed,
+                "evidence_ids": evidence_ids,
+                "explanation": f"Two quantity-related declarations normalize to different values: {dec_g:.0f} g and {net_g:.0f} g ({net_f.get('value')}). Officer verification required."
+            }
+        else:
+            return {
+                "check_id": generate_uuid(),
+                "check_type": check_type,
+                "status": "CONSISTENT",
+                "observed_values": observed,
+                "evidence_ids": evidence_ids,
+                "explanation": "Multiple quantity declarations are consistent."
+            }
+
     def _check_mrp_qty_usp(self, fields: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
         check_type = "MRP_QTY_USP_CONSISTENCY"
         
@@ -74,7 +136,6 @@ class ConsistencyEngine:
                 "explanation": "Missing one or more required fields for MRP ↔ Net Quantity ↔ USP check."
             }
 
-        # Taking first for simplicity in this check; conflicts are handled by field_duplicates check
         mrp_f = mrp_fields[0]
         qty_f = qty_fields[0]
         usp_f = usp_fields[0]
@@ -128,16 +189,33 @@ class ConsistencyEngine:
             }
 
         calculated_usp = mrp_val / normalized_qty
-        tolerance = 1.0 # 1 rupee tolerance
+        base_unit = unit_info["base"]
 
-        if abs(calculated_usp - usp_val) <= tolerance:
+        # Handle unit differences between USP denominator and Quantity base unit (e.g. per g vs per kg)
+        usp_str = str(usp_f.get("value", ""))
+        scale_to_base = 1.0
+        if "per g" in usp_str or "/g" in usp_str:
+            if base_unit == "kg":
+                scale_to_base = 1000.0
+        elif "per ml" in usp_str or "/ml" in usp_str:
+            if base_unit == "L":
+                scale_to_base = 1000.0
+
+        usp_scaled = usp_val * scale_to_base
+        tolerance = 1.5
+
+        if abs(calculated_usp - usp_scaled) <= tolerance:
+            dec_fields = fields.get("declared_quantity", [])
+            explanation = f"Calculated USP (₹{calculated_usp:.2f}/{base_unit}) mathematically matches observed USP ({observed_values['USP']}) based on net quantity of {qty_f.get('value')}."
+            if dec_fields:
+                explanation += f" Note: mathematically conflicts with secondary declaration {dec_fields[0].get('value')}."
             return {
                 "check_id": generate_uuid(),
                 "check_type": check_type,
                 "status": "CONSISTENT",
                 "observed_values": observed_values,
-                "calculated_value": f"₹{calculated_usp:.2f}/{unit_info['base']}",
-                "explanation": f"Calculated USP (₹{calculated_usp:.2f}/{unit_info['base']}) mathematically matches observed USP.",
+                "calculated_value": f"₹{calculated_usp:.2f}/{base_unit}",
+                "explanation": explanation,
                 "evidence_ids": evidence_ids
             }
         else:
@@ -146,7 +224,7 @@ class ConsistencyEngine:
                 "check_type": check_type,
                 "status": "REVIEW_REQUIRED",
                 "observed_values": observed_values,
-                "calculated_value": f"₹{calculated_usp:.2f}/{unit_info['base']}",
+                "calculated_value": f"₹{calculated_usp:.2f}/{base_unit}",
                 "explanation": f"Observed USP differs from calculated unit price by more than tolerance.",
                 "evidence_ids": evidence_ids
             }
@@ -239,15 +317,18 @@ class ConsistencyEngine:
                 "explanation": "No address extracted."
             }
         
-        # A mock logic to check PIN in address
-        val = addr[0].get("value", "")
-        pin_match = re.search(r"\b\d{6}\b", val)
-        if pin_match:
+        val = str(addr[0].get("value", ""))
+        pin_match = re.search(r"\b([1-9][0-9]{2})\s*([0-9]{3})\b|\b\d{6}\b", val)
+        pin_fields = fields.get("pin_code", [])
+        pin_code_val = pin_fields[0].get("value") if pin_fields else None
+
+        if pin_match or pin_code_val:
+            found_pin = "".join(pin_match.groups()) if (pin_match and pin_match.groups() and pin_match.groups()[0]) else (pin_match.group() if pin_match else pin_code_val)
             return {
                 "check_id": generate_uuid(),
                 "check_type": check_type,
                 "status": "CONSISTENT",
-                "observed_values": {"Address": val, "Extracted PIN": pin_match.group()},
+                "observed_values": {"Address": val, "Extracted PIN": str(found_pin)},
                 "explanation": "Address contains a valid 6-digit PIN code format."
             }
         else:
@@ -261,15 +342,15 @@ class ConsistencyEngine:
 
     def _check_dates(self, fields: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
         check_type = "DATE_CONSISTENCY"
-        mfg = fields.get("manufacture_date", [])
-        exp = fields.get("expiry_date", [])
+        mfg = fields.get("manufacture_date", []) or fields.get("packing_date", [])
+        exp = fields.get("expiry_date", []) or fields.get("best_before", [])
 
         if not mfg or not exp:
             return {
                 "check_id": generate_uuid(),
                 "check_type": check_type,
                 "status": "INSUFFICIENT_EVIDENCE",
-                "explanation": "Missing Mfg or Expiry date for comparison."
+                "explanation": "Missing Mfg/Packing or Expiry/Best Before date for comparison."
             }
         
         m_val = mfg[0].get("value", "")

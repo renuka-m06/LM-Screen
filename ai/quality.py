@@ -82,27 +82,35 @@ class ImageQualityGate:
         if glare_ratio > self.max_glare_ratio and blur_score < 500.0:
             reasons.append(f"Excessive glare detected (glare ratio: {glare_ratio:.2f})")
 
-        # Determine overall status
-        if not resolution_ok or blur_score < (self.blur_threshold * 0.5):
+        # Determine overall state and status:
+        # Standardized States: HIGH_QUALITY, READABLE, REVIEW_QUALITY, UNUSABLE
+        # Operational Statuses: ACCEPTABLE, PARTIALLY_USABLE, RETAKE_REQUIRED
+        if not resolution_ok or blur_score < (self.blur_threshold * 0.35):
+            state = "UNUSABLE"
             status = "RETAKE_REQUIRED"
-        elif glare_ratio > (self.max_glare_ratio * 2.0) and blur_score < 500.0:
+            quality_label = "Unusable (Retake Needed)"
+        elif glare_ratio > (self.max_glare_ratio * 2.5) and blur_score < 300.0:
+            state = "UNUSABLE"
             status = "RETAKE_REQUIRED"
-        elif len(reasons) > 0:
+            quality_label = "Unusable (Excessive Glare)"
+        elif len(reasons) > 0 or blur_score < self.blur_threshold:
+            state = "REVIEW_QUALITY"
             status = "PARTIALLY_USABLE"
-        else:
+            quality_label = "Review Quality (Partially Clear)"
+        elif blur_score > (self.blur_threshold * 1.5) and 0.20 <= brightness_score <= 0.80 and glare_ratio < 0.05:
+            state = "HIGH_QUALITY"
             status = "ACCEPTABLE"
-
-        # Human-readable quality label
-        if status == "ACCEPTABLE":
-            quality_label = "Good (Clear & Legible)"
-        elif status == "PARTIALLY_USABLE":
-            quality_label = "Fair (Partially Clear)"
+            quality_label = "High Quality (Clear & Legible)"
         else:
-            quality_label = "Poor (Retake Recommended)"
+            state = "READABLE"
+            status = "ACCEPTABLE"
+            quality_label = "Readable (Declaration Panel Legible)"
 
         return {
             "status": status,
+            "state": state,
             "quality_label": quality_label,
+            "usable": state != "UNUSABLE",
             "resolution_ok": resolution_ok,
             "blur_score": round(blur_score, 2),
             "brightness_score": round(brightness_score, 2),
@@ -115,17 +123,27 @@ class ImageQualityGate:
 
     def upgrade_with_ocr(self, quality_result: Dict[str, Any], ocr_tokens: list) -> Dict[str, Any]:
         """
-        If OCR successfully extracted high-confidence tokens, upgrade status from PARTIALLY_USABLE to ACCEPTABLE.
+        If OCR successfully extracted readable tokens, upgrade quality state.
+        Image quality must never stop screening or declare UNUSABLE when useful evidence is present.
         """
-        if not ocr_tokens or quality_result.get("status") == "RETAKE_REQUIRED":
+        if not ocr_tokens:
             return quality_result
 
-        high_conf_tokens = [t for t in ocr_tokens if t.get("confidence", 0) >= 0.70]
-        if len(high_conf_tokens) >= 3 and quality_result.get("status") == "PARTIALLY_USABLE":
+        high_conf_tokens = [t for t in ocr_tokens if t.get("confidence", 0) >= 0.50]
+        if len(high_conf_tokens) >= 3:
             updated = dict(quality_result)
-            updated["status"] = "ACCEPTABLE"
-            updated["quality_label"] = "Good (Verified by OCR)"
-            updated["reasons"] = [r for r in updated.get("reasons", []) if "dark" not in r.lower()]
-            return updated
+            current_state = updated.get("state", updated.get("status"))
+            if current_state in ["UNUSABLE", "REVIEW_QUALITY", "PARTIALLY_USABLE", "RETAKE_REQUIRED"]:
+                if len(high_conf_tokens) >= 10:
+                    updated["state"] = "HIGH_QUALITY"
+                    updated["status"] = "ACCEPTABLE"
+                    updated["quality_label"] = "High Quality (Verified by Evidence)"
+                else:
+                    updated["state"] = "READABLE"
+                    updated["status"] = "ACCEPTABLE"
+                    updated["quality_label"] = "Readable (Verified by Evidence)"
+                updated["usable"] = True
+                updated["reasons"] = [r for r in updated.get("reasons", []) if "dark" not in r.lower() and "blurry" not in r.lower()]
+                return updated
 
         return quality_result

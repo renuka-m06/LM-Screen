@@ -34,52 +34,64 @@ class ScreeningService:
     def process_image(self, image_np: np.ndarray, user_hints: Dict[str, str] = None) -> Dict[str, Any]:
         """
         Run the full evidence-first screening pipeline.
+        Emits [LM-SCREEN] timing logs for each stage.
         """
         start_time = time.time()
         trace = []
         user_hints = user_hints or {}
 
         # 1. Quality
+        _t = time.time()
         q_result = self.quality.assess(image_np)
+        print(f"[LM-SCREEN] quality = {(time.time() - _t) * 1000:.0f} ms")
         trace.append({"stage": "IMAGE_QUALITY", "status": "OK" if q_result["usable"] else "RETAKE_REQUIRED", "detail": f"Score: {q_result['quality_score']}"})
 
         # 2. Detection
+        _t = time.time()
         det_result = self.detection.detect(image_np)
+        print(f"[LM-SCREEN] detection = {(time.time() - _t) * 1000:.0f} ms")
         trace.append({"stage": "PANEL_DETECTION", "status": det_result["status"], "detail": f"Method: {det_result['method']}"})
 
-        # 3. OCR (now with ML Detection Bounding Boxes for Regional OCR support)
+        # 3. OCR — single-pass full-image inference, token intersection for region attribution
+        _t = time.time()
         ocr_result = self.ocr.extract(image_np, detections=det_result.get("detections", []))
+        print(f"[LM-SCREEN] OCR = {(time.time() - _t) * 1000:.0f} ms  (tokens={ocr_result['token_count']})")
         trace.append({"stage": "OCR", "status": ocr_result["status"], "detail": f"Tokens: {ocr_result['token_count']}"})
-        
+
         # OCR Quality Refinement
         q_result = self.quality.refine_with_ocr(q_result, ocr_result["tokens"])
 
         # 4. Barcode
+        _t = time.time()
         barcode_result = self.barcode.detect(image_np)
+        print(f"[LM-SCREEN] barcode = {(time.time() - _t) * 1000:.0f} ms")
         trace.append({"stage": "BARCODE", "status": barcode_result["status"], "detail": f"Format: {barcode_result.get('format', 'N/A')}"})
 
         # 5. Evidence Extraction
-        # Get scale if available from barcode
+        _t = time.time()
         scale = barcode_result.get("raw_metrics", {}).get("scale_mm_per_pixel")
         evidence_list = self.evidence.extract(ocr_result["tokens"], scale_mm_per_pixel=scale)
-        
+
         # 5b. Integrate ML Detections as Evidence
         for det in det_result.get("detections", []):
+            raw_conf = det.get("confidence")
             evidence_list.append({
                 "type": "DETECTION",
                 "field": det.get("class_name"),
                 "value": det.get("bbox"),
                 "found": True,
-                "confidence": det.get("confidence", "UNKNOWN"),
-                "source": det.get("source", "UNKNOWN"),
+                "confidence": float(raw_conf) if raw_conf is not None and raw_conf != "UNKNOWN" else 1.0,
+                "source": det.get("source") or "ML_DETECTION",
                 "model_name": det.get("model_name"),
                 "model_version": det.get("model_version")
             })
-
+        print(f"[LM-SCREEN] extraction = {(time.time() - _t) * 1000:.0f} ms  (fields={len(evidence_list)})")
         trace.append({"stage": "EVIDENCE_EXTRACTION", "status": "OK", "detail": f"Extracted {len(evidence_list)} pieces of evidence (OCR + ML)"})
 
         # 6. Classification
-        class_result = self.classification.classify(ocr_result["tokens"], image_np=image_np)
+        _t = time.time()
+        class_result = self.classification.classify(ocr_result["tokens"], image_np=image_np, evidence_list=evidence_list)
+        print(f"[LM-SCREEN] classification = {(time.time() - _t) * 1000:.0f} ms")
         trace.append({"stage": "PRODUCT_CLASSIFICATION", "status": class_result["status"], "detail": f"Category: {class_result['category']}"})
 
         # 7. Context Setup
@@ -101,6 +113,7 @@ class ScreeningService:
         trace.append({"stage": "EVIDENCE_QUALITY", "status": "OK", "detail": "Assigned quality states to evidence"})
 
         # 9. Rule Engine Evaluation
+        _t = time.time()
         extracted_fields_legacy = {
             e["field"]: {
                 "normalized_value":  e.get("value"),
@@ -116,16 +129,25 @@ class ScreeningService:
             }
             for e in evidence_list if e.get("found") and e.get("type", "TEXT") != "DETECTION"
         }
-        
+
         rule_traces = self.rule_engine.evaluate(extracted_fields_legacy, context, q_result.get("raw_metrics", {}))
+        print(f"[LM-SCREEN] rules = {(time.time() - _t) * 1000:.0f} ms  (rules={len(rule_traces)})")
         trace.append({"stage": "RULE_EVALUATION", "status": "OK", "detail": f"Evaluated {len(rule_traces)} rules"})
 
         # 10. Verdict Aggregation
-        verdict = self.verdict_aggregator.aggregate(rule_traces, q_result.get("raw_metrics", {}), barcode_result.get("raw_metrics", {}), context, [])
+        verdict = self.verdict_aggregator.aggregate(
+            rule_traces,
+            q_result.get("raw_metrics", {}),
+            barcode_result.get("raw_metrics", {}),
+            context,
+            [],
+            consistency_checks=consistency_checks
+        )
         trace.append({"stage": "VERDICT", "status": verdict.get("status"), "detail": f"Confidence: {verdict.get('screening_confidence')}"})
 
         duration_ms = (time.time() - start_time) * 1000
-        
+        print(f"[LM-SCREEN] TOTAL = {duration_ms:.0f} ms  | verdict={verdict.get('status')} | tokens={ocr_result['token_count']}")
+
         return {
             "image_quality": q_result,
             "detections": det_result["detections"],

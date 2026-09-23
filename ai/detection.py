@@ -38,8 +38,12 @@ class PackageDetector:
             contours, _ = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
 
+            # 1. Try Canny edge-based quadrilateral detection
             screen_cnt = None
             for c in contours:
+                area = cv2.contourArea(c)
+                if area < 0.04 * (width * height):
+                    continue
                 peri = cv2.arcLength(c, True)
                 approx = cv2.approxPolyDP(c, 0.02 * peri, True)
                 if len(approx) == 4:
@@ -53,15 +57,47 @@ class PackageDetector:
                 
                 return {
                     "detected": True,
-                    "confidence": 0.88,
+                    "confidence": 0.90,
                     "polygon": polygon,
                     "crop_box": [
-                        int(rect[0][0]), int(rect[0][1]),
-                        int(rect[2][0] - rect[0][0]), int(rect[2][1] - rect[0][1])
+                        max(0, int(rect[0][0])), max(0, int(rect[0][1])),
+                        min(width, int(rect[2][0] - rect[0][0])), min(height, int(rect[2][1] - rect[0][1]))
                     ],
                     "reasons": ["Quadrilateral information panel detected successfully"]
                 }
-        except Exception as e:
+
+            # 2. Try high-contrast label / panel segmentation (e.g. white/light sticker on package)
+            # Combine Otsu + fixed high threshold to isolate white declaration sticker
+            _, thresh_fixed = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+            _, thresh_otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # Adaptive threshold for complex, uneven lighting
+            thresh_adapt = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2
+            )
+
+            # Test threshold maps with morphological closing to fuse text lines into a panel
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
+            for thresh_map in [thresh_fixed, thresh_otsu, thresh_adapt]:
+                closed = cv2.morphologyEx(thresh_map, cv2.MORPH_CLOSE, kernel)
+                lbl_contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                lbl_contours = sorted(lbl_contours, key=cv2.contourArea, reverse=True)
+
+                for c in lbl_contours:
+                    area = cv2.contourArea(c)
+                    if 0.03 * (width * height) <= area <= 0.95 * (width * height):
+                        x, y, w, h = cv2.boundingRect(c)
+                        aspect = w / h if h > 0 else 0
+                        if 0.25 <= aspect <= 4.0:
+                            polygon = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+                            return {
+                                "detected": True,
+                                "confidence": 0.88,
+                                "polygon": polygon,
+                                "crop_box": [max(0, int(x)), max(0, int(y)), min(width - x, int(w)), min(height - y, int(h))],
+                                "reasons": ["High-contrast declaration panel detected successfully"]
+                            }
+        except Exception:
             pass
 
         # Fallback to full image dimensions if quad contour detection fails

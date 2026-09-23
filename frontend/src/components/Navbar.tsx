@@ -1,9 +1,9 @@
 import React from 'react';
-import { Shield, ScanLine, FileText, LayoutDashboard, UserCheck } from 'lucide-react';
+import { Shield, ScanLine, FileText, LayoutDashboard, UserCheck, ClipboardList } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'scan' | 'citizen' | 'officer' | 'dashboard';
-  setActiveTab: (tab: 'scan' | 'citizen' | 'officer' | 'dashboard') => void;
+  activeTab: 'scan' | 'citizen' | 'officer' | 'dashboard' | 'cases';
+  setActiveTab: (tab: 'scan' | 'citizen' | 'officer' | 'dashboard' | 'cases') => void;
   userRole: 'CITIZEN' | 'OFFICER';
   setUserRole: (role: 'CITIZEN' | 'OFFICER') => void;
 }
@@ -69,6 +69,19 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, userRol
           >
             <LayoutDashboard size={16} /> Analytics
           </button>
+          {userRole === 'OFFICER' && (
+            <button
+              onClick={() => setActiveTab('cases')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '6px', border: 'none',
+                background: activeTab === 'cases' ? 'var(--color-primary-soft)' : 'transparent',
+                color: activeTab === 'cases' ? 'var(--color-primary)' : 'var(--text-secondary)',
+                fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.2s'
+              }}
+            >
+              <ClipboardList size={16} /> Cases
+            </button>
+          )}
         </nav>
 
         {/* Role Toggle Selector */}

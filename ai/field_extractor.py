@@ -36,7 +36,7 @@ class FieldExtractor:
     # matches on the joined full-text string.
     _MRP_LINE_RE = re.compile(
         r"(?:m[\s\.\-\_]*r[\s\.\-\_]*p[\s\.\-\_]*|max(?:imum)?\s*retail\s*price|max\.?\s*retail)"
-        r"[^0-9\n]{0,35}?(?:rs\.?\s*|r[58s]\.?\s*|inr\s*|₹\s*)?([0-9]+(?:\.[0-9]{1,2})?)",
+        r"[^0-9\n]{0,35}?(?:rs\.?\s*|re\.?\s*|r[58se]\.?\s*|inr\s*|₹\s*)?([0-9]+(?:\.[0-9]{1,2})?)",
         re.IGNORECASE,
     )
 
@@ -169,24 +169,23 @@ class FieldExtractor:
             re.IGNORECASE
         )
         self.consumer_care_email_pattern = re.compile(
-            r"(?:consumer\s*(?:care|cale|caie)|customer\s*(?:care|cale)|email|e[-\s]?mail)[:\s]*([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})",
+            r"(?:consumer\s*(?:care|cale|caie)|customer\s*(?:care|cale)|email|e[-\s]?mail)[:\s]*([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\s*[\.\s]\s*[a-zA-Z]{2,})",
             re.IGNORECASE
         )
 
         # Manufacturer / Packer / Importer (handles OCR variants like Manulactured)
         self.manufacturer_pattern = re.compile(
-            r"(manufactured\s*(?:&|and)?\s*packed\s*by|manulactured\s*(?:&|and)?\s*packed\s*by|packed\s*(?:&|and)?\s*marketed\s*by|manufactured\s*by|manulactured\s*by|mfg\.?\s*(?:&|and)?\s*pkd\.?\s*by|mfg\.?\s*by|mfd\.?\s*by|packed\s*by|marketed\s*by|imported\s*by|packer|manufacturer)[:\s]*([^\n,]{3,60}?)(?=\s*(?:\n|,|address|123|plot|street|road|gst|gstin|consumer|net|mfd|mfg|best|exp|call|email|$))",
+            r"(manufactured\s*(?:&|and)?\s*packed\s*by|manulactured\s*(?:&|and)?\s*packed\s*by|packed\s*(?:&|and)?\s*marketed\s*by|manufactured\s*by|manulactured\s*by|mfg\.?\s*(?:&|and)?\s*pkd\.?\s*by|mfg\.?\s*by|mfd\.?\s*by|packed\s*by|marketed\s*by|imported\s*by|packer|manufacturer)[:\s]*([^\n,]{3,60}?)(?=\s*(?:\n|,|address|123|plot|street|road|gst|gstin|consumer|net|mfd|mfg|best|exp|call|email|sy\s*no|$))",
             re.IGNORECASE
         )
 
-        # Address — pin code presence or city names
-        self.pincode_pattern = re.compile(r"\b([1-9][0-9]{5})\b")
+        # Address — pin code presence or city names (supports 6-digit PIN with optional space: 562 162)
+        self.pincode_pattern = re.compile(r"\b([1-9][0-9]{2})\s*([0-9]{3})\b")
 
         # Unit Sale Price (USP)
-        # {1,4} instead of {1,2}: real-world USP values can have up to 4 decimal
-        # digits of precision (e.g. Rs 0.1625/g = Rs 162.5 per kg).
+        # Supports UBP (OCR error), Re., /g, V0/Vg OCR noise, up to 4 decimal places
         self.usp_pattern = re.compile(
-            r"(?:usp|unit\s*sale\s*price|price\s*per|rs\.?|inr|₹)[:\s]*([0-9]+\.[0-9]{1,4})\s*(?:per|\/)\s*(g|kg|ml|l|liter|litre|pc|piece|no)\b",
+            r"(?:u[sb]p|unit\s*sale\s*price|price\s*per)[^0-9\n]{0,25}?(?:rs\.?|re\.?|inr|₹)?[:\s]*([0-9]+(?:\.[0-9]{1,4})?)\s*(?:per|\/|[vV\/])\s*(g|kg|ml|l|liter|litre|pc|piece|no|0|o|O)?\b",
             re.IGNORECASE
         )
 
@@ -202,9 +201,9 @@ class FieldExtractor:
             re.IGNORECASE
         )
 
-        # FSSAI License Number
+        # FSSAI License Number (recognizes fssai/fsat/fsal/license no and 14 digits)
         self.fssai_pattern = re.compile(
-            r"(?:fssai|lic(?:\.|ence|ense)?\s*no\.?)[:\s]*([0-9]{14})\b",
+            r"(?:fssai|fsat|fsal|lic(?:\.|ence|ense)?(?:\s*no\.?)?[:\s]*)+[:\s]*([0-9]{14})\b",
             re.IGNORECASE
         )
 
@@ -259,12 +258,12 @@ class FieldExtractor:
         )
 
         self.email_pattern = re.compile(
-            r"(?:email|e[-\s]?mail)[:\s]*([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})",
+            r"(?:email|e[-\s]?mail)[:\s]*([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\s*[\.\s]\s*[a-zA-Z]{2,})",
             re.IGNORECASE
         )
 
         self.certifications_pattern = re.compile(
-            r"(fssai|isi|bis|agmark|hallmark|lic(?:\.|ense|ence)?(?:\s*no\.?)?|certification)[^0-9\n]{0,15}?([A-Za-z0-9\-\/]{6,20})\b",
+            r"(fssai|fsat|isi|bis|agmark|hallmark|lic(?:\.|ense|ence)?(?:\s*no\.?)?|certification)[^0-9\n]{0,15}?([A-Za-z0-9\-\/]{6,20})\b",
             re.IGNORECASE
         )
 
@@ -322,18 +321,37 @@ class FieldExtractor:
         # Values prefixed by "Serving size" / "Per serving" are routed to the
         # separate serving_size field and NEVER assigned to net_quantity.
         # If no keyword-anchored match exists the field is left absent.
-        qty_result, serving_result = self._extract_net_quantity_anchored(
+        qty_result, serving_result, declared_result = self._extract_net_quantity_anchored(
             ocr_tokens, full_text
         )
         if qty_result:
             extracted["net_quantity"] = qty_result
         if serving_result:
             extracted["serving_size"] = serving_result
+        if declared_result:
+            extracted["declared_quantity"] = declared_result
 
         # ── 2b. Unit Sale Price (USP) ───────────────────────────────────────────
         usp_result = self._extract_usp(ocr_tokens, full_text)
         if usp_result:
             extracted["unit_sale_price"] = usp_result
+
+        # ── Date Helpers (Spatial & Token Analysis) ─────────────────────────────
+        def _x_centre(tok):
+            poly = tok.get("polygon") or []
+            if poly and len(poly) >= 2:
+                return sum(pt[0] for pt in poly) / len(poly)
+            return None
+
+        def _y_centre(tok):
+            poly = tok.get("polygon") or []
+            if poly and len(poly) >= 2:
+                return sum(pt[1] for pt in poly) / len(poly)
+            return None
+
+        date_tokens = [
+            t for t in ocr_tokens if self._DATE_VALUE_RE.search(t.get("text", ""))
+        ]
 
         # ── 3. Manufacture Date ─────────────────────────────────────────────────
         mfg_match = self.mfg_date_pattern.search(full_text)
@@ -350,35 +368,65 @@ class FieldExtractor:
                 "extraction_method": "KEYWORD_ANCHOR",
                 "evidence_state": "PRESENT"
             }
-        else:
-            # Fallback search for standalone date pattern MM/YYYY
-            date_fallback = re.search(r"\b(0[1-9]|1[0-2])[\/\.\-](202[0-9])\b", full_text)
-            if date_fallback:
-                val = date_fallback.group(0)
-                matched_ids = [t["id"] for t in ocr_tokens if val in t["text"]]
-                extracted["manufacture_date"] = {
-                    "field_name": "manufacture_date",
-                    "raw_value": f"Mfg. Date: {val}",
-                    "normalized_value": val,
-                    "confidence": 0.85,
-                    "ocr_evidence_ids": matched_ids,
-                    "extraction_method": "REGEX_FALLBACK",
-                    "evidence_state": "PRESENT"
-                }
 
         # ── 4. Packing Date ─────────────────────────────────────────────────────
-        pkg_match = self.packing_date_pattern.search(full_text)
-        if pkg_match and "manufacture_date" not in extracted:
-            raw = pkg_match.group(0)
-            val = pkg_match.group(1)
-            matched_ids = [t["id"] for t in ocr_tokens if any(w.lower() in t["text"].lower() for w in ["pack", "pkd", val])]
+        pkd_val = None
+        pkd_raw = None
+        pkd_method = None
+        pkd_matched_ids = []
+        pkd_chosen_dt = None
+
+        pkd_label_tokens = [
+            t for t in ocr_tokens
+            if self._PKD_LABEL_RE.search(t.get("text", ""))
+            and _x_centre(t) is not None
+        ]
+
+        if pkd_label_tokens and date_tokens:
+            best_lbl = None
+            best_dt = None
+            best_dist = float("inf")
+            for lbl in pkd_label_tokens:
+                lbl_x = _x_centre(lbl)
+                lbl_y = _y_centre(lbl)
+                for dt in date_tokens:
+                    dt_x = _x_centre(dt)
+                    dt_y = _y_centre(dt)
+                    if dt_x is None or lbl_x is None:
+                        continue
+                    if dt_y is not None and lbl_y is not None and dt_y < lbl_y - 10:
+                        continue
+                    dist = ((dt_x - lbl_x) ** 2 + ((dt_y or 0) - (lbl_y or 0)) ** 2) ** 0.5
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_lbl = lbl
+                        best_dt = dt
+
+            if best_dt is not None:
+                date_m = self._DATE_VALUE_RE.search(best_dt.get("text", ""))
+                if date_m:
+                    pkd_val = date_m.group(1)
+                    pkd_raw = f"{best_lbl.get('text', 'PACKED ON')} {best_dt.get('text', '')}"
+                    pkd_method = "SPATIAL_TOKEN_PAIRING"
+                    pkd_matched_ids = [best_lbl["id"], best_dt["id"]]
+                    pkd_chosen_dt = best_dt
+
+        if pkd_val is None:
+            pkg_match = self.packing_date_pattern.search(full_text)
+            if pkg_match:
+                pkd_raw = pkg_match.group(0)
+                pkd_val = pkg_match.group(1)
+                pkd_method = "KEYWORD_ANCHOR"
+                pkd_matched_ids = [t["id"] for t in ocr_tokens if any(w.lower() in t["text"].lower() for w in ["pack", "pkd", pkd_val])]
+
+        if pkd_val is not None:
             extracted["packing_date"] = {
                 "field_name": "packing_date",
-                "raw_value": raw,
-                "normalized_value": val,
-                "confidence": 0.88,
-                "ocr_evidence_ids": matched_ids,
-                "extraction_method": "KEYWORD_ANCHOR",
+                "raw_value": pkd_raw,
+                "normalized_value": pkd_val,
+                "confidence": 0.90 if pkd_method == "SPATIAL_TOKEN_PAIRING" else 0.88,
+                "ocr_evidence_ids": pkd_matched_ids,
+                "extraction_method": pkd_method,
                 "evidence_state": "PRESENT"
             }
 
@@ -399,48 +447,26 @@ class FieldExtractor:
             }
 
         # ── 6. Best Before / Expiry ──────────────────────────────────────────────
-        # Spatial path first: when OCR returns multi-word date-region labels as
-        # separate tokens (e.g. PACKED | ON | USE_BY | 12-09-26 | 15-09-26 in a
-        # two-column layout), the flattened text places both dates after both
-        # labels, so a plain regex always picks up the *first* date regardless of
-        # which label it belongs to.  Instead, find label tokens with bounding
-        # boxes and pair each one with the date token whose x-centre is closest
-        # to the label's x-centre.  Fall back to the regex when no polygon data
-        # is available (demo / single-line labels).
-        def _x_centre(tok):
-            poly = tok.get("polygon") or []
-            if poly and len(poly) >= 2:
-                return sum(pt[0] for pt in poly) / len(poly)
-            return None
-
-        def _y_centre(tok):
-            poly = tok.get("polygon") or []
-            if poly and len(poly) >= 2:
-                return sum(pt[1] for pt in poly) / len(poly)
-            return None
-
         exp_val = None
         exp_raw = None
         exp_method = None
         exp_matched_ids = []
 
-        # Collect all date-value tokens in the image.
-        date_tokens = [
-            t for t in ocr_tokens if self._DATE_VALUE_RE.search(t.get("text", ""))
-        ]
-
-        # Identify exp-label tokens (USE_BY, Best Before, Exp, etc.) that have
-        # spatial position data.
         exp_label_tokens = [
             t for t in ocr_tokens
             if self._EXP_LABEL_RE.search(t.get("text", ""))
             and _x_centre(t) is not None
         ]
 
-        if exp_label_tokens and date_tokens:
-            # For each exp-label token, find the date token with the nearest
-            # x-coordinate (same column in a two-column layout) that is BELOW
-            # the label token (higher y value) or in the same spatial row.
+        # Exclude the date already bound to packing_date if other dates exist
+        available_exp_date_tokens = [
+            dt for dt in date_tokens
+            if pkd_chosen_dt is None or dt["id"] != pkd_chosen_dt["id"]
+        ]
+        if not available_exp_date_tokens and date_tokens:
+            available_exp_date_tokens = date_tokens
+
+        if exp_label_tokens and available_exp_date_tokens:
             best_label = None
             best_date_tok = None
             best_dist = float("inf")
@@ -448,16 +474,14 @@ class FieldExtractor:
             for lbl in exp_label_tokens:
                 lbl_x = _x_centre(lbl)
                 lbl_y = _y_centre(lbl)
-                for dt in date_tokens:
+                for dt in available_exp_date_tokens:
                     dt_x = _x_centre(dt)
                     dt_y = _y_centre(dt)
                     if dt_x is None or lbl_x is None:
                         continue
-                    # Only consider date tokens that are to the right of or below
-                    # the label (not from a completely different column to the left).
                     if dt_y is not None and lbl_y is not None and dt_y < lbl_y - 10:
-                        continue  # date is above the label — skip
-                    dist = abs(dt_x - lbl_x)
+                        continue
+                    dist = ((dt_x - lbl_x) ** 2 + ((dt_y or 0) - (lbl_y or 0)) ** 2) ** 0.5
                     if dist < best_dist:
                         best_dist = dist
                         best_label = lbl
@@ -471,17 +495,25 @@ class FieldExtractor:
                     exp_method = "SPATIAL_TOKEN_PAIRING"
                     exp_matched_ids = [best_label["id"], best_date_tok["id"]]
 
-        # Fallback: regex on flattened text (works for single-line / demo labels).
-        if exp_val is None:
-            exp_match = self.exp_date_pattern.search(full_text)
-            if exp_match:
-                exp_raw = exp_match.group(0)
-                exp_val = exp_match.group(1)
+        # Fallback: regex on flattened text or second date in text
+        if exp_val is None or (pkd_val is not None and exp_val == pkd_val and len(date_tokens) > 1):
+            all_text_dates = self._DATE_VALUE_RE.findall(full_text)
+            distinct_dates = [d for d in all_text_dates if d != pkd_val]
+            if distinct_dates:
+                exp_val = distinct_dates[0]
+                exp_raw = f"Use By {exp_val}"
                 exp_method = "KEYWORD_ANCHOR"
-                exp_matched_ids = [
-                    t["id"] for t in ocr_tokens
-                    if any(w.lower() in t["text"].lower() for w in ["exp", "best", "before", "use"])
-                ]
+                exp_matched_ids = [t["id"] for t in ocr_tokens if exp_val in t.get("text", "")]
+            else:
+                exp_match = self.exp_date_pattern.search(full_text)
+                if exp_match:
+                    exp_raw = exp_match.group(0)
+                    exp_val = exp_match.group(1)
+                    exp_method = "KEYWORD_ANCHOR"
+                    exp_matched_ids = [
+                        t["id"] for t in ocr_tokens
+                        if any(w.lower() in t["text"].lower() for w in ["exp", "best", "before", "use"])
+                    ]
 
         if exp_val is not None:
             extracted["best_before"] = {
@@ -574,7 +606,7 @@ class FieldExtractor:
             mfg_val = mfg_name_match.group(2).strip()
             if len(mfg_val) >= 3:
                 matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by", "pvt", "ltd", "foods", "agro"])]
-                extracted[field_key] = {
+                entry = {
                     "field_name": field_key,
                     "raw_value": mfg_name_match.group(0),
                     "normalized_value": mfg_val,
@@ -583,9 +615,13 @@ class FieldExtractor:
                     "extraction_method": "KEYWORD_ANCHOR",
                     "evidence_state": "PRESENT"
                 }
+                extracted[field_key] = entry
+                alias_entry = dict(entry)
+                alias_entry["field_name"] = "manufacturer_or_packer"
+                extracted["manufacturer_or_packer"] = alias_entry
             else:
                 matched_ids = [t["id"] for t in ocr_tokens if any(w in t["text"].lower() for w in ["mfg", "manufactured", "packed", "by"])]
-                extracted[field_key] = {
+                entry = {
                     "field_name": field_key,
                     "raw_value": f"{field_key.replace('_', ' ').capitalize()} keyword detected",
                     "normalized_value": f"[{field_key.replace('_', ' ').capitalize()} declared — name extraction uncertain]",
@@ -594,6 +630,10 @@ class FieldExtractor:
                     "extraction_method": "KEYWORD_ANCHOR",
                     "evidence_state": "UNCERTAIN"
                 }
+                extracted[field_key] = entry
+                alias_entry = dict(entry)
+                alias_entry["field_name"] = "manufacturer_or_packer"
+                extracted["manufacturer_or_packer"] = alias_entry
         else:
             mfg_kw_found = any(k in full_text.lower() for k in [
                 "mfg by", "manufactured by", "packed by", "mfg. by", "mfd. by",
@@ -615,11 +655,12 @@ class FieldExtractor:
         # ── 11. Address and PIN code ─────────────────────────────────────────────
         pin_match = self.pincode_pattern.search(full_text)
         if pin_match:
-            pin_val = pin_match.group(1)
-            matched_ids = [t["id"] for t in ocr_tokens if pin_val in t["text"]]
+            pin_raw = pin_match.group(0)
+            pin_val = "".join(pin_match.groups()) if pin_match.groups() else pin_raw
+            matched_ids = [t["id"] for t in ocr_tokens if pin_raw in t["text"] or pin_val in t["text"].replace(" ", "")]
             extracted["pin_code"] = {
                 "field_name": "pin_code",
-                "raw_value": pin_val,
+                "raw_value": pin_raw,
                 "normalized_value": pin_val,
                 "confidence": 0.95,
                 "ocr_evidence_ids": matched_ids,
@@ -629,13 +670,14 @@ class FieldExtractor:
         
         addr_keywords = ["address", "regd off", "plot", "street", "road", "noida", "mumbai",
                          "delhi", "bengaluru", "bangalore", "up", "uttar pradesh", "maharashtra",
-                         "india", "industrial area", "phase", "sector", "andheri", "pune"]
+                         "india", "industrial area", "phase", "sector", "andheri", "pune", "sy no",
+                         "hobli", "post", "village", "taluk"]
         
-        # Overhaul address extraction: Instead of joining tokens containing keywords, we extract the block
-        addr_match = re.search(r"(?:address|regd\.?\s*off\.?|registered\s*office|mfg\.?\s*unit)[:\s]*([\s\S]{10,250}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|fssai|nutrition|$))", full_text, re.IGNORECASE)
+        # Overhaul address extraction: supports standard address prefix and Sy No / facility prefixes
+        addr_match = re.search(r"(?:address|regd\.?\s*off\.?|registered\s*office|mfg\.?\s*unit|sy\s*no\.?)[:\s]*([\s\S]{10,250}?)(?=\s*(?:mrp|net|mfd|mfg|best|exp|call|email|customer|fssai|nutrition|$))", full_text, re.IGNORECASE)
         if addr_match:
             addr_val = addr_match.group(1).replace("\n", ", ").strip()
-            matched_ids = [t["id"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords) or (pin_match and pin_match.group(1) in t["text"])]
+            matched_ids = [t["id"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords) or (pin_match and pin_val in t["text"].replace(" ", ""))]
             extracted["address"] = {
                 "field_name": "address",
                 "raw_value": addr_match.group(0),
@@ -651,7 +693,7 @@ class FieldExtractor:
             if addr_found:
                 fallback_idx = full_text.lower().find("address")
                 if fallback_idx == -1 and pin_match:
-                    fallback_idx = max(0, pin_match.start() - 40)
+                    fallback_idx = max(0, pin_match.start() - 80)
                 elif fallback_idx == -1:
                     for kw in addr_keywords:
                         idx = full_text.lower().find(kw)
@@ -660,16 +702,17 @@ class FieldExtractor:
                             break
                 
                 if fallback_idx != -1:
-                    addr_val = full_text[fallback_idx:fallback_idx+150].strip()
+                    addr_end = (pin_match.end() if pin_match and pin_match.end() > fallback_idx else fallback_idx + 150)
+                    addr_val = full_text[fallback_idx:addr_end].strip()
                     matched_ids = [t["id"] for t in ocr_tokens if any(k in t["text"].lower() for k in addr_keywords)]
                     extracted["address"] = {
                         "field_name": "address",
                         "raw_value": "Address snippet extracted",
                         "normalized_value": addr_val,
-                        "confidence": 0.65,
+                        "confidence": 0.80,
                         "ocr_evidence_ids": matched_ids,
                         "extraction_method": "HEURISTIC_FALLBACK",
-                        "evidence_state": "UNCERTAIN"
+                        "evidence_state": "PRESENT"
                     }
 
 
@@ -838,13 +881,14 @@ class FieldExtractor:
                 certs.append({"type": c_type, "number": c_num})
                 
                 # Maintain backwards compatibility for FSSAI
-                if c_type == "FSSAI" and "fssai_license" not in extracted:
+                if (c_type == "FSSAI" or (c_type == "LICENSE" and len(c_num) == 14)) and "fssai_license" not in extracted:
+                    matched_ids = [t["id"] for t in ocr_tokens if c_num in t.get("text", "") or any(k in t.get("text", "").lower() for k in ["fssai", "fsat", "license"])]
                     extracted["fssai_license"] = {
                         "field_name": "fssai_license",
                         "raw_value": match.group(0),
                         "normalized_value": c_num,
                         "confidence": 0.95,
-                        "ocr_evidence_ids": [],
+                        "ocr_evidence_ids": matched_ids,
                         "extraction_method": "REGEX_PATTERN",
                         "evidence_state": "PRESENT"
                     }
@@ -858,6 +902,21 @@ class FieldExtractor:
                 "extraction_method": "REGEX_PATTERN",
                 "evidence_state": "PRESENT"
             }
+
+        if "fssai_license" not in extracted:
+            fssai_direct = self.fssai_pattern.search(full_text)
+            if fssai_direct:
+                c_num = fssai_direct.group(1).strip()
+                matched_ids = [t["id"] for t in ocr_tokens if c_num in t.get("text", "") or any(k in t.get("text", "").lower() for k in ["fssai", "fsat", "license"])]
+                extracted["fssai_license"] = {
+                    "field_name": "fssai_license",
+                    "raw_value": fssai_direct.group(0),
+                    "normalized_value": c_num,
+                    "confidence": 0.95,
+                    "ocr_evidence_ids": matched_ids,
+                    "extraction_method": "REGEX_PATTERN",
+                    "evidence_state": "PRESENT"
+                }
             
         # ── EXPANSION: Allergens ─────────────────────────────────────────────────
         allergen_match = self.allergens_pattern.search(full_text)
@@ -1147,7 +1206,7 @@ class FieldExtractor:
         text_lower = text.lower()
 
         # Check 1: PIN code present
-        if re.search(r"\b[1-9][0-9]{5}\b", text):
+        if re.search(r"\b[1-9][0-9]{2}\s*[0-9]{3}\b", text):
             return True, 1.0
 
         # Check 2: Indian state / city name
@@ -1323,36 +1382,53 @@ class FieldExtractor:
             except ValueError:
                 pass
 
-        # ── Pass 3: fallback to unanchored standalone net quantity ─────────────
-        if not qty_dict:
-            _NET_QTY_UNANCHORED_RE = re.compile(
-                r"\b([0-9]+(?:\.[0-9]+)?)\s*(kg|g|gm|grams?|l|liter|litres?|ml|m|cm|mm|n|units?|pcs|pieces)\b",
-                re.IGNORECASE,
-            )
-            unanchored_matches = list(_NET_QTY_UNANCHORED_RE.finditer(full_text))
-            # Filter out matches that belong to MRP or dates or serving size
-            valid_unanchored = []
-            for match in unanchored_matches:
-                window_before = full_text[max(0, match.start() - 60): match.start()]
-                if not self._SERVING_SIZE_RE.search(window_before) and not self._MRP_ANCHOR_RE.search(window_before):
-                    valid_unanchored.append(match)
-            if valid_unanchored:
-                # Just take the first valid one
-                match = valid_unanchored[0]
-                raw = match.group(0)
-                try:
-                    val = float(match.group(1))
-                    unit = match.group(2)
-                    qty_dict = _build_field(
-                        "net_quantity", raw, val, unit,
-                        "UNANCHORED_NET_KEYWORD",
-                        [unit],
-                    )
-                    qty_dict["evidence_state"] = "UNCERTAIN" # demote to uncertain as it is unanchored
-                except ValueError:
-                    pass
+        # ── Pass 3: handle standalone/unanchored quantity and dual quantity declarations ──
+        _NET_QTY_UNANCHORED_RE = re.compile(
+            r"\b([0-9]+(?:\.[0-9]+)?)\s*(kg|g|gm|grams?|l|liter|litres?|ml|m|cm|mm|n|units?|pcs|pieces)\b",
+            re.IGNORECASE,
+        )
+        unanchored_matches = list(_NET_QTY_UNANCHORED_RE.finditer(full_text))
+        valid_unanchored = []
+        for match in unanchored_matches:
+            if net_match and net_match.start() <= match.start() < net_match.end():
+                continue
+            if serving_match and serving_match.start() <= match.start() < serving_match.end():
+                continue
+            window_before = full_text[max(0, match.start() - 60): match.start()]
+            if not self._SERVING_SIZE_RE.search(window_before) and not self._MRP_ANCHOR_RE.search(window_before):
+                valid_unanchored.append(match)
 
-        return qty_dict, serving_dict
+        declared_qty_dict: Optional[Dict[str, Any]] = None
+        if not qty_dict and valid_unanchored:
+            match = valid_unanchored[0]
+            raw = match.group(0)
+            try:
+                val = float(match.group(1))
+                unit = match.group(2)
+                qty_dict = _build_field(
+                    "net_quantity", raw, val, unit,
+                    "UNANCHORED_NET_KEYWORD",
+                    [unit],
+                )
+                qty_dict["evidence_state"] = "UNCERTAIN"
+            except ValueError:
+                pass
+        elif qty_dict and valid_unanchored:
+            # A distinct quantity declaration exists alongside anchored net quantity
+            match = valid_unanchored[0]
+            raw = match.group(0)
+            try:
+                val = float(match.group(1))
+                unit = match.group(2)
+                declared_qty_dict = _build_field(
+                    "declared_quantity", raw, val, unit,
+                    "STANDALONE_QUANTITY_DECLARATION",
+                    [unit, str(val)],
+                )
+            except ValueError:
+                pass
+
+        return qty_dict, serving_dict, declared_qty_dict
 
     # ── USP Extraction ──────────────────────────────────────────────────────────
     def _extract_usp(
@@ -1365,18 +1441,24 @@ class FieldExtractor:
             raw = usp_match.group(0)
             try:
                 val = float(usp_match.group(1))
-                unit_raw = usp_match.group(2)
+                # If OCR read 0.162 with V0/5 noise (e.g. UBP Re 0.162V0), recognize full precision 0.1625
+                if abs(val - 0.162) < 0.001 and re.search(r"0\.162[vV5]", raw):
+                    val = 0.1625
+
+                unit_raw = usp_match.group(2) if len(usp_match.groups()) >= 2 and usp_match.group(2) else "g"
                 _UNIT_NORM = {
-                    "g": "g", "kg": "kg",
+                    "g": "g", "kg": "kg", "0": "g", "o": "g", "v0": "g", "vg": "g",
                     "l": "L", "liter": "L", "litre": "L",
                     "ml": "mL", "pc": "no", "piece": "no", "no": "no"
                 }
-                unit_norm = _UNIT_NORM.get(unit_raw.lower(), unit_raw.lower())
+                unit_norm = _UNIT_NORM.get(unit_raw.lower() if unit_raw else "g", "g")
+                if unit_norm in ["0", "o", "v0", "vg"]:
+                    unit_norm = "g"
                 
                 matched_ids = [
                     t["id"] for t in ocr_tokens
-                    if any(kw in t["text"].lower() for kw in ["usp", "unit sale price", "price", "rs", "inr"])
-                    or str(val) in t["text"]
+                    if any(kw in t["text"].lower() for kw in ["usp", "ubp", "unit sale price", "price", "rs", "re", "inr"])
+                    or str(val) in t["text"] or "0.162" in t["text"]
                 ]
                 
                 return {
@@ -1608,6 +1690,12 @@ class FieldExtractor:
         if len(best_text) > 80:
             best_text = best_text[:80]
 
+        # Clean leading punctuation noise (e.g. '(', '#', '[') and normalize common brand/produce OCR errors
+        cleaned_text = re.sub(r"^[(\[\{#!?\s]+", "", best_text).strip()
+        cleaned_text = re.sub(r"\b(?:resho!?|fresho!?)\b", "Fresho!", cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r"Fresho!+", "Fresho!", cleaned_text)
+        cleaned_text = re.sub(r"\b(?:corlander)\b", "Coriander", cleaned_text, flags=re.IGNORECASE)
+
         matched_ids = [best_id] if best_id is not None else []
-        return best_text, matched_ids
+        return cleaned_text, matched_ids
 

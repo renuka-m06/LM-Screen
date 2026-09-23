@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from backend.app.database import get_db
-from backend.app.models.models import Scan, CitizenReport, ProductCluster, OfficerReview, Product
+from backend.app.models.models import Scan, CitizenReport, ProductCluster, OfficerReview, Product, Investigation
 import datetime
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard Statistics"])
@@ -65,6 +65,13 @@ def get_dashboard_statistics(db: Session = Depends(get_db)):
         count = db.query(Scan).filter(Scan.timestamp >= day_start, Scan.timestamp <= day_end).count()
         scan_trend.append({"date": day.strftime("%d %b"), "scans": count})
 
+    # Case management stats
+    case_stats = {}
+    for st in ["REVIEW_REQUIRED", "UNDER_REVIEW", "EVIDENCE_VERIFIED", "ACTION_REQUIRED",
+               "INSPECTION_ASSIGNED", "RESOLVED", "CLOSED", "DISMISSED", "EVIDENCE_INSUFFICIENT", "DUPLICATE"]:
+        case_stats[st] = db.query(Investigation).filter(Investigation.status == st).count()
+    total_cases = db.query(Investigation).count()
+
     return {
         "scans": {
             "total": total_scans,
@@ -81,6 +88,11 @@ def get_dashboard_statistics(db: Session = Depends(get_db)):
             "active_clusters": total_clusters,
             "completed_officer_reviews": total_reviews,
             "priority_products": priority_products
+        },
+        "case_management": {
+            "total_cases": total_cases,
+            "status_counts": case_stats,
+            "active_cases": case_stats.get("REVIEW_REQUIRED", 0) + case_stats.get("UNDER_REVIEW", 0) + case_stats.get("ACTION_REQUIRED", 0) + case_stats.get("INSPECTION_ASSIGNED", 0),
         },
         "scan_trend": scan_trend
     }

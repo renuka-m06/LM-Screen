@@ -33,6 +33,6 @@ class BarcodeService:
         
         return {
             "value": None,
-            "status": "NOT_DETECTED",
+            "status": "NOT_DECODED",
             "raw_metrics": result
         }

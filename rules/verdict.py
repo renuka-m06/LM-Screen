@@ -35,11 +35,14 @@ class VerdictAggregator:
         quality_status: Dict[str, Any],
         barcode_status: Dict[str, Any],
         context: Dict[str, Any],
-        identity_warnings: List[Dict[str, Any]] = None
+        identity_warnings: List[Dict[str, Any]] = None,
+        consistency_checks: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
 
         if identity_warnings is None:
             identity_warnings = []
+        if consistency_checks is None:
+            consistency_checks = []
 
         review_reasons = []
         checks_performed = []
@@ -65,6 +68,13 @@ class VerdictAggregator:
         for w in identity_warnings:
             review_reasons.append(f"{w['type']}: {w.get('explanation', '')}")
 
+        # ── Gate 2b: Cross-Evidence Consistency ──────────────────────────────
+        has_consistency_issue = False
+        for c in consistency_checks:
+            if c.get("status") in ["REVIEW_REQUIRED", "INCONSISTENT"]:
+                has_consistency_issue = True
+                review_reasons.append(f"Consistency check {c.get('check_type')}: {c.get('explanation')}")
+
         # ── Gate 3: Scale reference check ─────────────────────────────────────
         if not barcode_status.get("scale_reference_usable", False):
             checks_not_performed.append({
@@ -86,7 +96,11 @@ class VerdictAggregator:
             checks_performed.append({
                 "rule_id": trace.get("rule_id"),
                 "rule_name": trace.get("rule_name"),
+                "field": trace.get("field"),
                 "status": st,
+                "evidence_status": trace.get("evidence_status", "SUPPORTED" if st == "PASS" else "NOT_DETECTED"),
+                "legal_reference": trace.get("legal_reference"),
+                "evidence_ids": trace.get("evidence_ids", []),
                 "reason": trace.get("reason")
             })
 
@@ -109,6 +123,9 @@ class VerdictAggregator:
         elif has_identity_warning:
             final_status = "NEEDS_REVIEW"
             confidence = 0.65
+        elif has_consistency_issue:
+            final_status = "NEEDS_REVIEW"
+            confidence = 0.85
         elif has_potential_non_compliance:
             final_status = "POTENTIAL_NON_COMPLIANCE"
             confidence = 0.88
@@ -121,7 +138,7 @@ class VerdictAggregator:
             review_reasons.append("No statutory declarations were verified from the provided image.")
         else:
             final_status = "PASS_SCREENING"
-            confidence = 0.95 if quality_status.get("status") == "ACCEPTABLE" else 0.88
+            confidence = 0.95 if quality_status.get("status") in ["ACCEPTABLE", "HIGH_QUALITY"] else 0.88
 
         return {
             "status": final_status,

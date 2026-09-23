@@ -337,19 +337,128 @@ class CitizenReport(Base):
     product = relationship("Product", back_populates="reports")
 
 class Investigation(Base):
+    """Officer Case — the core case management entity.
+    
+    Lifecycle states:
+      REVIEW_REQUIRED → UNDER_REVIEW → EVIDENCE_VERIFIED → ACTION_REQUIRED
+      → INSPECTION_ASSIGNED → RESOLVED
+    Terminal: EVIDENCE_INSUFFICIENT, CLOSED, DISMISSED, DUPLICATE
+    Reopenable: RESOLVED, CLOSED, DISMISSED → UNDER_REVIEW
+    """
     __tablename__ = "investigations"
 
     id = Column(String, primary_key=True, default=generate_uuid)
+    case_number = Column(String, unique=True, index=True, nullable=True)  # LM-YYYY-NNNNN
+
+    # Source links
     product_id = Column(String, ForeignKey("products.id"), nullable=True)
-    scan_id = Column(String, ForeignKey("scans.id"), nullable=True)
-    priority = Column(String, default="MEDIUM")
-    status = Column(String, default="OPEN", index=True)
+    cluster_id = Column(String, ForeignKey("product_clusters.id"), nullable=True)
+    source_scan_ids = Column(JSON, nullable=True)  # List of scan IDs that triggered this case
+    scan_id = Column(String, ForeignKey("scans.id"), nullable=True)  # Primary trigger scan
+
+    # Trigger metadata
+    trigger_type = Column(String, nullable=True, index=True)
+    # CROSS_EVIDENCE_CONFLICT | POTENTIAL_NON_COMPLIANCE | REPEATED_OBSERVATION
+    # | OFFICER_CREATED | CITIZEN_OBSERVATION | EVIDENCE_PATTERN | PRIORITIZATION_SIGNAL
+    trigger_description = Column(Text, nullable=True)
+
+    # Identity snapshot (denormalized at case creation time)
+    product_identity_snapshot = Column(JSON, nullable=True)
+    # {brand, product_name, variant, gtin, category, net_quantity}
+
+    priority = Column(String, default="MEDIUM", index=True)  # LOW | MEDIUM | HIGH | PRIORITY_REVIEW
+    status = Column(String, default="REVIEW_REQUIRED", index=True)
+    # REVIEW_REQUIRED | UNDER_REVIEW | EVIDENCE_VERIFIED | ACTION_REQUIRED
+    # | INSPECTION_ASSIGNED | RESOLVED | EVIDENCE_INSUFFICIENT | CLOSED | DISMISSED | DUPLICATE
+
     assigned_officer = Column(String, ForeignKey("users.id"), nullable=True)
-    reason = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)  # Creation reason
+
+    # Officer finding
+    finding = Column(String, nullable=True)
+    # EVIDENCE_VERIFIED | ISSUE_NOT_CONFIRMED | MORE_EVIDENCE_REQUIRED
+    # | INSPECTION_REQUIRED | DUPLICATE_CASE | RESOLVED
+    finding_notes = Column(Text, nullable=True)
+    finding_recorded_at = Column(DateTime, nullable=True)
+    finding_recorded_by = Column(String, ForeignKey("users.id"), nullable=True)
+
+    # Closure
+    closure_reason = Column(Text, nullable=True)
+    closure_outcome = Column(String, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    closed_by = Column(String, ForeignKey("users.id"), nullable=True)
+
+    # Duplication
+    duplicate_of_case_id = Column(String, ForeignKey("investigations.id"), nullable=True)
+
+    # Timestamps
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     product = relationship("Product", back_populates="investigations")
+    cluster = relationship("ProductCluster", foreign_keys=[cluster_id])
+    assigned_officer_user = relationship("User", foreign_keys=[assigned_officer])
+    notes = relationship("CaseNote", back_populates="case", cascade="all, delete-orphan")
+    inspections = relationship("CaseInspection", back_populates="case", cascade="all, delete-orphan")
+    audit_events = relationship("CaseAuditEvent", back_populates="case", cascade="all, delete-orphan")
+
+
+class CaseNote(Base):
+    """Officer note attached to a case. Immutable once written."""
+    __tablename__ = "case_notes"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    case_id = Column(String, ForeignKey("investigations.id"), nullable=False, index=True)
+    author_id = Column(String, ForeignKey("users.id"), nullable=False)
+    note = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    case = relationship("Investigation", back_populates="notes")
+    author = relationship("User", foreign_keys=[author_id])
+
+
+class CaseInspection(Base):
+    """Field inspection assignment linked to a case."""
+    __tablename__ = "case_inspections"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    case_id = Column(String, ForeignKey("investigations.id"), nullable=False, index=True)
+    assigned_to = Column(String, ForeignKey("users.id"), nullable=True)
+    assigned_by = Column(String, ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime, default=datetime.datetime.utcnow)
+    scheduled_at = Column(DateTime, nullable=True)
+    location_hint = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(String, default="PENDING", index=True)  # PENDING | IN_PROGRESS | COMPLETED | CANCELLED
+    inspection_notes = Column(Text, nullable=True)  # Filled after completion
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    case = relationship("Investigation", back_populates="inspections")
+    assignee = relationship("User", foreign_keys=[assigned_to])
+    assigner = relationship("User", foreign_keys=[assigned_by])
+
+
+class CaseAuditEvent(Base):
+    """Immutable per-case audit event. Never deleted, never overwritten."""
+    __tablename__ = "case_audit_events"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    case_id = Column(String, ForeignKey("investigations.id"), nullable=False, index=True)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=True)
+    action = Column(String, nullable=False)
+    # CASE_CREATED | STATUS_CHANGED | ASSIGNED | NOTE_ADDED | EVIDENCE_LINKED
+    # | INSPECTION_ASSIGNED | FINDING_RECORDED | CASE_CLOSED | CASE_REOPENED
+    # | EVIDENCE_CORRECTED | MARKED_DUPLICATE
+    old_status = Column(String, nullable=True)
+    new_status = Column(String, nullable=True)
+    detail = Column(JSON, nullable=True)  # Action-specific extra data
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    case = relationship("Investigation", back_populates="audit_events")
+    actor = relationship("User", foreign_keys=[actor_id])
 
 class ProductCluster(Base):
     """Product/Case Cluster for aggregating multiple evidence submissions relating to the same identity."""

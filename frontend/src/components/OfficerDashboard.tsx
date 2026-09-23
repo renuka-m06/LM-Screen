@@ -3,7 +3,10 @@ import { getOfficerQueue, submitOfficerReview } from '../api';
 import type { PriorityQueueItem } from '../types';
 import { Shield } from 'lucide-react';
 
-export const OfficerDashboard: React.FC<{ onInvestigate?: (productId?: string, scanId?: string, clusterId?: string) => void }> = ({ onInvestigate }) => {
+export const OfficerDashboard: React.FC<{
+  onInvestigate?: (productId?: string, scanId?: string, clusterId?: string) => void;
+  onOpenCases?: () => void;
+}> = ({ onInvestigate, onOpenCases }) => {
   const [queue, setQueue] = useState<PriorityQueueItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedCluster, setSelectedCluster] = useState<PriorityQueueItem | null>(null);
@@ -61,6 +64,15 @@ export const OfficerDashboard: React.FC<{ onInvestigate?: (productId?: string, s
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
               Evidence-driven investigation and verification queue.
             </p>
+            {onOpenCases && (
+              <button
+                onClick={onOpenCases}
+                className="btn-secondary"
+                style={{ marginTop: '10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem' }}
+              >
+                <Shield size={14} color="var(--color-primary)" /> Open Case Management
+              </button>
+            )}
           </div>
 
           {/* Status Filter Tabs */}

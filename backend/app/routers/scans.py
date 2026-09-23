@@ -3,6 +3,7 @@ import io
 import time
 import hashlib
 import numpy as np
+import cv2
 from PIL import Image
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Header
 from sqlalchemy.orm import Session
@@ -13,7 +14,7 @@ from backend.app.config import settings
 from backend.app.models.models import (
     Scan, OCRResult, ExtractedField, RuleResult, DecisionTrace, Product,
     ProductImage, ImageQuality, Detection, ProductClassification,
-    RuleResultEvidence, ReviewFactor
+    RuleResultEvidence, ReviewFactor, ConsistencyCheck
 )
 from backend.app.schemas.schemas import ScanResponse
 
@@ -60,7 +61,7 @@ async def process_scan(
 
     try:
         pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
-        image_np = np.array(pil_image)
+        image_np = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image format: {str(e)}")
 
@@ -91,7 +92,19 @@ async def process_scan(
     decision_trace.extend(pipeline_result["decision_trace"])
     
     # Map back to old extracted_fields format for DB save compatibility temporarily
-    extracted_fields = {e["field"]: {"field_name": e["field"], "raw_value": e["source"]["raw_text"], "normalized_value": e["value"], "confidence": e["confidence"], "extraction_method": e["method"], "evidence_state": "PRESENT" if e["found"] else "ABSENT_FROM_EVIDENCE"} for e in evidence_list}
+    # e["source"] may be a plain string ("OCR"/"UNKNOWN") on DETECTION-type entries — guard with isinstance.
+    extracted_fields = {
+        e["field"]: {
+            "field_name": e["field"],
+            "raw_value": e["source"].get("raw_text") if isinstance(e.get("source"), dict) else None,
+            "normalized_value": e["value"],
+            "confidence": e["confidence"],
+            "extraction_method": e.get("method"),
+            "evidence_state": "PRESENT" if e["found"] else "ABSENT_FROM_EVIDENCE"
+        }
+        for e in evidence_list
+        if e.get("field") and e.get("type", "TEXT") != "DETECTION"
+    }
 
     # ── Step 3: Identity Consistency Check ────────────────────────────────────
     ocr_product_name = extracted_fields.get("product_name", {}).get("normalized_value") if "product_name" in extracted_fields else None
@@ -107,6 +120,14 @@ async def process_scan(
     )
     identity_warnings = identity_check.get("warnings", [])
     has_identity_mismatch = identity_check.get("has_warnings", False)
+
+    if has_identity_mismatch:
+        verdict["status"] = "NEEDS_REVIEW"
+        verdict["public_label"] = "Review Required (Identity Mismatch)"
+        if "review_reasons" not in verdict or not isinstance(verdict["review_reasons"], list):
+            verdict["review_reasons"] = []
+        for w in identity_warnings:
+            verdict["review_reasons"].append(w.get("explanation", "Identity mismatch detected"))
 
     decision_trace.append({
         "stage": "IDENTITY_CHECK",
@@ -176,10 +197,15 @@ async def process_scan(
         # 3. Detections
         det_map = {} # Maps crop_box or some identifier to Detection.id if possible, or we just save them
         for det in pipeline_result["detections"]:
+            raw_conf = det.get("confidence", 1.0)
+            try:
+                det_confidence = float(raw_conf)
+            except (TypeError, ValueError):
+                det_confidence = 1.0  # "UNKNOWN" or other non-numeric → safe default
             db_det = Detection(
                 image_id=db_image.id,
                 object_type=det.get("type", "package"),
-                confidence=det.get("confidence", 1.0)
+                confidence=det_confidence
             )
             if "crop_box" in det:
                 x, y, w, h = det["crop_box"]
@@ -236,23 +262,36 @@ async def process_scan(
             db.add(db_ocr)
 
         # 7. Save Extracted Fields (Evidence)
+        import json as _json
         field_id_map = {}
         for ev in evidence_list:
+            # ev["source"] may be a plain string on DETECTION-type entries — guard
+            ev_source = ev.get("source") if isinstance(ev.get("source"), dict) else {}
+            # normalized_value may be a list/dict (e.g. certifications) — serialize to string
+            norm_val = ev["value"]
+            if isinstance(norm_val, (dict, list)):
+                norm_val = _json.dumps(norm_val, ensure_ascii=False)
+            elif norm_val is not None:
+                norm_val = str(norm_val)
+            # source_bbox may be a list/dict — serialize
+            src_bbox = ev_source.get("bbox")
+            if isinstance(src_bbox, (dict, list)):
+                src_bbox = _json.dumps(src_bbox)
             db_field = ExtractedField(
                 scan_id=scan_db.id,
                 field_name=ev["field"],
-                raw_value=ev.get("source", {}).get("raw_text"),
-                raw_text=ev.get("source", {}).get("raw_text"),
-                normalized_value=ev["value"],
+                raw_value=ev_source.get("raw_text"),
+                raw_text=ev_source.get("raw_text"),
+                normalized_value=norm_val,
                 found=ev["found"],
-                confidence=ev["confidence"],
+                confidence=float(ev["confidence"]) if ev["confidence"] not in (None, "UNKNOWN") else 1.0,
                 evidence_state=ev.get("evidence_state", "UNCERTAIN"),
                 quality_reasons=ev.get("quality_reasons", []),
-                source_type=ev.get("source", {}).get("type"),
+                source_type=ev_source.get("type"),
                 source_image_id=db_image.id,
                 source_detection_id=det_map.get("primary"),
-                source_panel=ev.get("source", {}).get("panel"),
-                source_bbox=ev.get("source", {}).get("bbox"),
+                source_panel=ev_source.get("panel"),
+                source_bbox=src_bbox,
                 extraction_method=ev.get("method", "UNKNOWN")
             )
             db.add(db_field)
@@ -267,7 +306,7 @@ async def process_scan(
                 rule_name=trace_item.get("field", "general"),
                 status=trace_item.get("status", "UNKNOWN"),
                 applicability=trace_item.get("applicability", "REQUIRED"),
-                confidence=trace_item.get("confidence", 1.0),
+                confidence=float(trace_item["confidence"]) if trace_item.get("confidence") not in (None, "UNKNOWN") else 1.0,
                 reason=trace_item.get("reason", "N/A")
             )
             db.add(db_rule)

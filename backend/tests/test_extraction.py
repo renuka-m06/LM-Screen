@@ -882,3 +882,85 @@ class TestExpansionFields:
         assert nutrients["energy"] == "100 kcal"
         assert nutrients["protein"] == "5g"
         assert nutrients["sodium"] == "20mg"
+
+    def test_coriander_real_package_extraction_and_dual_quantity(self):
+        tokens = [
+            make_token("t1", "(resho! Corlander Leaves"),
+            make_token("t2", "100 g"),
+            make_token("t3", "Net Welght 0.104kg"),
+            make_token("t4", "#81000009700104"),
+            make_token("t5", "PACKEd"),
+            make_token("t6", "ON"),
+            make_token("t7", "UsEBY"),
+            make_token("t8", "13-09-26"),
+            make_token("t9", "15-09-26"),
+            make_token("t10", "MRP Re.16.90"),
+            make_token("t11", "(Inol, Of AI Texee)"),
+            make_token("t12", "UBP Re 0.162V0"),
+            make_token("t13", "Packed and Marketed by"),
+            make_token("t14", "Innovative Retail Concepts Pvt Ltd:"),
+            make_token("t15", "Sy No: 12/1/2/48 Sy No. 14/1, Adakimaranhalli;"),
+            make_token("t16", "Dasanapura Hobli; Makali Post; Bangalore - 562 162"),
+            make_token("t17", "Email customerservice@bigbasket com"),
+            make_token("t18", "Customer Care No."),
+            make_token("t19", "1860 123 1000"),
+            make_token("t20", "fsat"),
+            make_token("t21", "License No::11221302000439"),
+        ]
+        fields = self.extractor.extract_fields(tokens)
+        
+        # 1. Product Name
+        assert "product_name" in fields
+        assert "Coriander" in fields["product_name"]["normalized_value"]
+        
+        # 2. Dual Quantity
+        assert "net_quantity" in fields
+        assert fields["net_quantity"]["numeric_value"] == 0.104
+        assert fields["net_quantity"]["unit"] == "kg"
+        assert "declared_quantity" in fields
+        assert fields["declared_quantity"]["numeric_value"] == 100.0
+        assert fields["declared_quantity"]["unit"] == "g"
+        
+        # 3. MRP & USP
+        assert "mrp" in fields
+        assert fields["mrp"]["numeric_value"] == 16.90
+        assert "unit_sale_price" in fields
+        assert fields["unit_sale_price"]["numeric_value"] == 0.1625
+        assert fields["unit_sale_price"]["unit"] == "g"
+        
+        # 4. Dates
+        assert "packing_date" in fields
+        assert fields["packing_date"]["normalized_value"] == "13-09-26"
+        assert "best_before" in fields
+        assert fields["best_before"]["normalized_value"] == "15-09-26"
+        
+        # 5. FSSAI License & Consumer Care
+        assert "fssai_license" in fields
+        assert fields["fssai_license"]["normalized_value"] == "11221302000439"
+        assert "consumer_care" in fields
+        assert "1860 123 1000" in fields["consumer_care"]["normalized_value"]
+        
+        # 6. Packer & Address
+        assert "manufacturer_or_packer" in fields
+        assert "Innovative Retail Concepts" in fields["manufacturer_or_packer"]["normalized_value"]
+        assert "address" in fields
+        assert "562 162" in fields["address"]["normalized_value"]
+        assert "pin_code" in fields
+        assert fields["pin_code"]["normalized_value"] == "562162"
+
+        # 7. Consistency Checks (Dual Quantity & USP Math)
+        from ai.consistency_engine import ConsistencyEngine
+        ce = ConsistencyEngine()
+        ev_list = [{"field": k, "value": v.get("normalized_value"), "found": True} for k, v in fields.items()]
+        checks = ce.evaluate(ev_list, {"decoded_data": None}, {"product_category": "food"})
+        
+        dual_qty_check = next((c for c in checks if c["check_type"] == "DUAL_QUANTITY_CONSISTENCY"), None)
+        assert dual_qty_check is not None
+        assert dual_qty_check["status"] == "REVIEW_REQUIRED"
+        assert "100 g and 104 g" in dual_qty_check["explanation"]
+
+        mrp_qty_usp_check = next((c for c in checks if c["check_type"] == "MRP_QTY_USP_CONSISTENCY"), None)
+        assert mrp_qty_usp_check is not None
+        assert mrp_qty_usp_check["status"] == "CONSISTENT"
+        assert "mathematically matches observed USP" in mrp_qty_usp_check["explanation"]
+

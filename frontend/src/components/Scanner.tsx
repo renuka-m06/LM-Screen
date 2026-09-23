@@ -4,6 +4,7 @@ import type { ScanResult } from '../types';
 import { EvidenceOverlay } from './EvidenceOverlay';
 import { DisclaimerBanner } from './DisclaimerBanner';
 import { Upload, CheckCircle2, AlertTriangle, HelpCircle, RefreshCw, FileCode, Search, Microscope, MessageSquare } from 'lucide-react';
+import { formatFieldValue } from '../utils';
 
 interface ScannerProps {
   userRole?: 'CITIZEN' | 'OFFICER';
@@ -31,17 +32,18 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
     }
   };
 
-  // Process Image Scan
+  // Process Image Scan — isScanning guard prevents double-submit
   const handleRunScan = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || loading) return;
     setLoading(true);
+    setScanResult(null);
     setErrorMsg(null);
 
     try {
       const result = await uploadScanImage(selectedFile, productName, gtin);
       setScanResult(result);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Scan processing failed.');
+      setErrorMsg(err.message || 'Scan processing failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -203,32 +205,36 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button
                 onClick={() => loadDemoPreset('clean')}
-                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}
-                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-main)')}
+                disabled={loading}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, transition: 'all 0.2s' }}
+                onMouseOver={(e) => !loading && (e.currentTarget.style.background = 'var(--bg-main)')}
                 onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 [ Clean Declaration (PASS) ]
               </button>
               <button
                 onClick={() => loadDemoPreset('missing_mrp')}
-                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}
-                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-main)')}
+                disabled={loading}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, transition: 'all 0.2s' }}
+                onMouseOver={(e) => !loading && (e.currentTarget.style.background = 'var(--bg-main)')}
                 onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 [ Missing MRP (POTENTIAL) ]
               </button>
               <button
                 onClick={() => loadDemoPreset('blurry')}
-                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}
-                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--bg-main)')}
+                disabled={loading}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, transition: 'all 0.2s' }}
+                onMouseOver={(e) => !loading && (e.currentTarget.style.background = 'var(--bg-main)')}
                 onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 [ Blurry Image (REVIEW) ]
               </button>
               <button
                 onClick={() => loadDemoPreset('mismatch')}
-                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--accent-review)', background: 'transparent', color: 'var(--accent-review)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
-                onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(233,185,73,0.08)')}
+                disabled={loading}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--accent-review)', background: 'transparent', color: 'var(--accent-review)', fontSize: '0.78rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, transition: 'all 0.2s' }}
+                onMouseOver={(e) => !loading && (e.currentTarget.style.background = 'rgba(233,185,73,0.08)')}
                 onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 [ Identity Mismatch (REVIEW) ]
@@ -311,13 +317,13 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
           {loading && (
             <div style={{ marginTop: '16px', padding: '16px', background: 'var(--color-primary-soft)', borderRadius: '8px', border: '1px solid var(--border-color)', animation: 'pulse 2s infinite' }}>
               <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <RefreshCw className="animate-spin" size={16} color="var(--color-primary)" /> Checking your package
+                <RefreshCw className="animate-spin" size={16} color="var(--color-primary)" /> Analyzing package...
               </p>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.8' }}>
-                <li><span style={{ color: 'var(--accent-pass)', marginRight: '8px', fontWeight: 'bold' }}>✓</span> Image quality</li>
-                <li><span style={{ color: 'var(--accent-pass)', marginRight: '8px', fontWeight: 'bold' }}>✓</span> Package detected</li>
-                <li><span style={{ color: 'var(--text-muted)', marginRight: '8px', fontWeight: 'bold' }}>◌</span> Reading package information</li>
-                <li><span style={{ color: 'var(--text-muted)', marginRight: '8px', fontWeight: 'bold' }}>◌</span> Reviewing available evidence</li>
+                <li><span style={{ color: 'var(--accent-pass)', marginRight: '8px', fontWeight: 'bold' }}>✓</span> Image quality assessment</li>
+                <li><span style={{ color: 'var(--accent-pass)', marginRight: '8px', fontWeight: 'bold' }}>✓</span> Panel detection</li>
+                <li><span style={{ color: 'var(--text-muted)', marginRight: '8px', fontWeight: 'bold' }}>◌</span> Extracting text (OCR)...</li>
+                <li><span style={{ color: 'var(--text-muted)', marginRight: '8px', fontWeight: 'bold' }}>◌</span> Evaluating statutory declarations...</li>
               </ul>
             </div>
           )}
@@ -384,11 +390,11 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📋 Fields extracted</span>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{Object.keys(scanResult.extracted_fields || {}).length}</span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{(scanResult.evidence ?? []).filter((e: any) => e.type !== 'DETECTION').length}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>⚖️ Rules applied</span>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{scanResult.checks_performed.length}</span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{(scanResult.rule_results ?? []).length}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📌 Rule version</span>
@@ -396,43 +402,84 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
               </div>
             </div>
 
+            {/* Product Classification Badge */}
+            {scanResult.product_context && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-main)', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Product Classification:</span>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase' }}>
+                    {scanResult.product_context.category ? (scanResult.product_context.category === 'food' ? 'FOOD / PRE-PACKAGED FOOD' : scanResult.product_context.category.replace(/_/g, ' ')) : 'GENERAL COMMODITY'}
+                  </span>
+                  {scanResult.product_context.confidence !== undefined && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      ({Math.round(scanResult.product_context.confidence * 100)}% confidence)
+                    </span>
+                  )}
+                </div>
+                {scanResult.product_context.method && (
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    via {scanResult.product_context.method}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Quality Gate Assessment Card */}
             <div className="glass-card" style={{ padding: '16px', marginBottom: '16px', background: 'var(--color-subtle-bg)', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <span style={{ fontSize: '0.80rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Image Quality Assessment
                 </span>
-                <span style={{
-                  fontSize: '0.78rem',
-                  fontWeight: 700,
-                  padding: '3px 10px',
-                  borderRadius: '20px',
-                  background: scanResult.quality.status === 'ACCEPTABLE' ? 'rgba(127, 182, 133, 0.15)' : scanResult.quality.status === 'PARTIALLY_USABLE' ? 'rgba(233, 185, 73, 0.15)' : 'rgba(233, 137, 126, 0.15)',
-                  color: scanResult.quality.status === 'ACCEPTABLE' ? 'var(--accent-pass)' : scanResult.quality.status === 'PARTIALLY_USABLE' ? 'var(--accent-review)' : 'var(--accent-potential)',
-                  border: `1px solid ${scanResult.quality.status === 'ACCEPTABLE' ? 'var(--accent-pass)' : scanResult.quality.status === 'PARTIALLY_USABLE' ? 'var(--accent-review)' : 'var(--accent-potential)'}`
-                }}>
-                  {(scanResult.quality as any).quality_label || (scanResult.quality.status === 'ACCEPTABLE' ? 'Good (Clear & Legible)' : scanResult.quality.status === 'PARTIALLY_USABLE' ? 'Fair (Partially Clear)' : 'Poor (Retake Needed)')}
-                </span>
+                {(() => {
+                  const q = scanResult.image_quality as any;
+                  const state = q?.state || (q?.status === 'ACCEPTABLE' ? 'READABLE' : q?.status === 'PARTIALLY_USABLE' ? 'REVIEW_QUALITY' : 'UNUSABLE');
+                  const isHigh = state === 'HIGH_QUALITY';
+                  const isReadable = state === 'READABLE';
+                  const isReview = state === 'REVIEW_QUALITY';
+                  
+                  const bg = isHigh ? 'rgba(74, 222, 128, 0.15)' : isReadable ? 'rgba(127, 182, 133, 0.15)' : isReview ? 'rgba(233, 185, 73, 0.15)' : 'rgba(233, 137, 126, 0.15)';
+                  const color = isHigh ? 'var(--accent-pass)' : isReadable ? 'var(--accent-pass)' : isReview ? 'var(--accent-review)' : 'var(--accent-potential)';
+                  const label = isHigh ? 'HIGH QUALITY (Optimal)' : isReadable ? 'READABLE (Evidence Legible)' : isReview ? 'REVIEW QUALITY (Partially Clear)' : 'UNUSABLE (Retake Needed)';
+
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        [{state}]
+                      </span>
+                      <span style={{
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        padding: '3px 10px',
+                        borderRadius: '20px',
+                        background: bg,
+                        color: color,
+                        border: `1px solid ${color}`
+                      }}>
+                        {q?.quality_label || label}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* User-friendly indicators */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', textAlign: 'center', padding: '10px 0', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)' }}>
                 <div>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>Clarity</span>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: (scanResult.quality?.blur_score ?? 0) >= 80 ? 'var(--accent-pass)' : 'var(--accent-potential)' }}>
-                    {(scanResult.quality?.blur_score ?? 0) >= 80 ? '✓ Sharp' : '⚠ Blurry'}
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: ((scanResult.image_quality?.blur_score ?? 0) >= 80 || (scanResult.image_quality as any)?.state === 'READABLE' || (scanResult.image_quality as any)?.state === 'HIGH_QUALITY') ? 'var(--accent-pass)' : 'var(--accent-potential)' }}>
+                    {((scanResult.image_quality?.blur_score ?? 0) >= 80 || (scanResult.image_quality as any)?.state === 'READABLE' || (scanResult.image_quality as any)?.state === 'HIGH_QUALITY') ? '✓ Legible' : '⚠ Blurry'}
                   </span>
                 </div>
                 <div>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>Lighting</span>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: ((scanResult.quality?.brightness_score ?? 0) >= 0.10 && (scanResult.quality?.brightness_score ?? 0) <= 0.90) ? 'var(--accent-pass)' : 'var(--accent-review)' }}>
-                    {((scanResult.quality?.brightness_score ?? 0) >= 0.10 && (scanResult.quality?.brightness_score ?? 0) <= 0.90) ? '✓ Balanced' : 'Check Lighting'}
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: ((scanResult.image_quality?.brightness_score ?? 0) >= 0.10 && (scanResult.image_quality?.brightness_score ?? 0) <= 0.90) ? 'var(--accent-pass)' : 'var(--accent-review)' }}>
+                    {((scanResult.image_quality?.brightness_score ?? 0) >= 0.10 && (scanResult.image_quality?.brightness_score ?? 0) <= 0.90) ? '✓ Balanced' : 'Check Lighting'}
                   </span>
                 </div>
                 <div>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>Reflections</span>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: (scanResult.quality?.glare_ratio ?? 0) <= 0.15 ? 'var(--accent-pass)' : 'var(--accent-potential)' }}>
-                    {(scanResult.quality?.glare_ratio ?? 0) <= 0.15 ? '✓ Low glare' : '⚠ Glare detected'}
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: (scanResult.image_quality?.glare_ratio ?? 0) <= 0.15 ? 'var(--accent-pass)' : 'var(--accent-potential)' }}>
+                    {(scanResult.image_quality?.glare_ratio ?? 0) <= 0.15 ? '✓ Low glare' : '⚠ Glare detected'}
                   </span>
                 </div>
               </div>
@@ -443,23 +490,73 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '8px', padding: '8px', background: 'var(--bg-main)', borderRadius: '6px', textAlign: 'center' }}>
                   <div>
                     <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>Blur Score</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.quality.blur_score}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.image_quality?.blur_score}</span>
                   </div>
                   <div>
                     <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>Brightness</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.quality.brightness_score}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.image_quality?.brightness_score}</span>
                   </div>
                   <div>
                     <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>Glare Ratio</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.quality.glare_ratio}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.image_quality?.glare_ratio}</span>
                   </div>
                   <div>
                     <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>Resolution</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.quality.width && scanResult.quality.height ? `${scanResult.quality.width}x${scanResult.quality.height}` : '600x600'}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{scanResult.image_quality?.width && scanResult.image_quality?.height ? `${scanResult.image_quality.width}x${scanResult.image_quality.height}` : '—'}</span>
                   </div>
                 </div>
               </details>
             </div>
+
+            {/* Mathematical & Cross-Field Consistency Checks */}
+            {scanResult.consistency_checks && scanResult.consistency_checks.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '10px', textTransform: 'uppercase' }}>
+                  Mathematical & Cross-Field Consistency
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {scanResult.consistency_checks.map((chk: any, idx: number) => {
+                    const isConsistent = chk.status === 'CONSISTENT';
+                    const isReview = chk.status === 'REVIEW_REQUIRED';
+                    const isInconsistent = chk.status === 'INCONSISTENT';
+                    return (
+                      <div key={idx} style={{
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--color-subtle-bg)',
+                        border: `1px solid ${isInconsistent ? 'rgba(233,137,126,0.3)' : isReview ? 'rgba(233,185,73,0.3)' : 'var(--border-color)'}`
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {chk.check_type.replace(/_/g, ' ')}
+                              </span>
+                              {chk.calculated_value && (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', fontFamily: 'var(--font-mono)' }}>
+                                  ({chk.calculated_value})
+                                </span>
+                              )}
+                            </div>
+                            <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: 1.4 }}>
+                              {chk.explanation}
+                            </p>
+                          </div>
+                          <span style={{
+                            fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', marginLeft: '12px',
+                            padding: '3px 8px', borderRadius: '12px',
+                            background: isConsistent ? 'rgba(127,182,133,0.15)' : isInconsistent ? 'rgba(233,137,126,0.15)' : 'rgba(233,185,73,0.15)',
+                            color: isConsistent ? 'var(--accent-pass)' : isInconsistent ? 'var(--accent-potential)' : 'var(--accent-review)'
+                          }}>
+                            {isConsistent ? '✓ CONSISTENT' : isInconsistent ? '⚠ INCONSISTENT' : '? REVIEW'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Checks Performed List */}
             <h4 style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '10px', textTransform: 'uppercase' }}>
@@ -467,7 +564,7 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             </h4>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-              {scanResult.checks_performed.map((chk: any, idx: number) => (
+              {(scanResult.rule_results ?? []).map((chk: any, idx: number) => (
                 <div key={idx} style={{ padding: '10px 12px', borderRadius: '6px', background: 'var(--color-subtle-bg)', border: '1px solid var(--border-color)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
@@ -478,14 +575,29 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
                         <p style={{ fontSize: '0.68rem', color: 'var(--accent-cyan)', marginTop: '3px', fontStyle: 'italic' }}>§ {(chk as any).legal_reference}</p>
                       )}
                     </div>
-                    <span style={{
-                      fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', marginLeft: '12px',
-                      padding: '3px 8px', borderRadius: '12px',
-                      background: chk.status === 'PASS' ? 'rgba(127,182,133,0.15)' : chk.status === 'POTENTIAL_NON_COMPLIANCE' ? 'rgba(233,137,126,0.15)' : 'rgba(233,185,73,0.15)',
-                      color: chk.status === 'PASS' ? 'var(--accent-pass)' : chk.status === 'POTENTIAL_NON_COMPLIANCE' ? 'var(--accent-potential)' : 'var(--accent-review)'
-                    }}>
-                      {chk.status === 'PASS' ? '✓ PASS' : chk.status === 'POTENTIAL_NON_COMPLIANCE' ? '⚠ FLAG' : '? REVIEW'}
-                    </span>
+                    {(() => {
+                      const st = chk.status;
+                      const evSt = chk.evidence_status || (st === 'PASS' ? 'SUPPORTED' : st === 'POTENTIAL_NON_COMPLIANCE' ? 'NOT_DETECTED' : 'REVIEW_REQUIRED');
+                      const isSupported = st === 'PASS' || evSt === 'SUPPORTED';
+                      const isFlag = st === 'POTENTIAL_NON_COMPLIANCE' || st === 'MISSING';
+                      const isReview = st === 'REVIEW_REQUIRED';
+
+                      const bg = isSupported ? 'rgba(127,182,133,0.15)' : isFlag ? 'rgba(233,137,126,0.15)' : isReview ? 'rgba(233,185,73,0.15)' : 'rgba(148,163,184,0.15)';
+                      const color = isSupported ? 'var(--accent-pass)' : isFlag ? 'var(--accent-potential)' : isReview ? 'var(--accent-review)' : 'var(--text-muted)';
+                      const pillText = isSupported ? '✓ SUPPORTED' : isFlag ? '⚠ MISSING' : isReview ? '? REVIEW REQUIRED' : '◌ NOT DETECTED';
+
+                      return (
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', marginLeft: '12px',
+                          padding: '3px 8px', borderRadius: '12px',
+                          background: bg,
+                          color: color,
+                          border: `1px solid ${color}`
+                        }}>
+                          {pillText}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -504,17 +616,17 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
                     </div>
                     {w.type === 'PRODUCT_IDENTITY_MISMATCH' && (
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', paddingLeft: '24px' }}>
-                        <div><span style={{ color: 'var(--text-secondary)' }}>You entered:</span> <strong>{w.user_provided}</strong></div>
-                        <div><span style={{ color: 'var(--text-secondary)' }}>Image evidence:</span> <strong>{w.image_evidence}</strong></div>
-                        <div style={{ marginTop: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{w.explanation}</div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>You entered:</span> <strong>{formatFieldValue(w.user_provided)}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Image evidence:</span> <strong>{formatFieldValue(w.image_evidence)}</strong></div>
+                        <div style={{ marginTop: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{formatFieldValue(w.explanation)}</div>
                       </div>
                     )}
                     {w.type === 'GTIN_CONSISTENCY_WARNING' && (
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', paddingLeft: '24px' }}>
-                        {w.user_provided && <div><span style={{ color: 'var(--text-secondary)' }}>User GTIN:</span> <strong>{w.user_provided}</strong></div>}
-                        {w.ocr_value && <div><span style={{ color: 'var(--text-secondary)' }}>OCR barcode:</span> <strong>{w.ocr_value}</strong></div>}
-                        {w.barcode_decoded && <div><span style={{ color: 'var(--text-secondary)' }}>Decoded barcode:</span> <strong>{w.barcode_decoded}</strong></div>}
-                        <div style={{ marginTop: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{w.explanation}</div>
+                        {w.user_provided && <div><span style={{ color: 'var(--text-secondary)' }}>User GTIN:</span> <strong>{formatFieldValue(w.user_provided)}</strong></div>}
+                        {w.ocr_value && <div><span style={{ color: 'var(--text-secondary)' }}>OCR barcode:</span> <strong>{formatFieldValue(w.ocr_value)}</strong></div>}
+                        {w.barcode_decoded && <div><span style={{ color: 'var(--text-secondary)' }}>Decoded barcode:</span> <strong>{formatFieldValue(w.barcode_decoded)}</strong></div>}
+                        <div style={{ marginTop: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{formatFieldValue(w.explanation)}</div>
                       </div>
                     )}
                   </div>
@@ -523,11 +635,14 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             )}
 
             {/* Review Reasons if applicable */}
-            {scanResult.review_reasons.length > 0 && (
+            {scanResult.review_factors && scanResult.review_factors.length > 0 && (
               <div style={{ padding: '12px', background: 'rgba(233, 185, 73, 0.1)', border: '1px solid rgba(233, 185, 73, 0.25)', borderRadius: '8px', marginBottom: '16px' }}>
                 <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-review)', display: 'block', marginBottom: '4px' }}>Review Factors Identified:</span>
                 <ul style={{ paddingLeft: '16px', fontSize: '0.78rem', color: 'var(--text-primary)' }}>
-                  {scanResult.review_reasons.map((r: any, i: number) => <li key={i}>{r}</li>)}
+                  {scanResult.review_factors.map((r: any, i: number) => {
+                    const text = typeof r === 'string' ? r : (r?.reason || r?.description || r?.explanation || JSON.stringify(r));
+                    return <li key={i}>{text}</li>;
+                  })}
                 </ul>
               </div>
             )}
@@ -565,7 +680,7 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
             {/* Officer Action — Investigate Product Workspace */}
             {userRole === 'OFFICER' && onInvestigate && (
               <button
-                onClick={() => onInvestigate(scanResult.product_id, scanResult.scan_id)}
+                onClick={() => onInvestigate(scanResult.product_id, scanResult.screening_id)}
                 style={{
                   width: '100%', padding: '10px 16px', marginTop: '12px',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
@@ -636,8 +751,8 @@ export const Scanner: React.FC<ScannerProps> = ({ userRole = 'CITIZEN', onInvest
           </h3>
           <EvidenceOverlay
             imageSrc={previewUrl}
-            ocrTokens={scanResult.ocr_tokens}
-            extractedFields={scanResult.extracted_fields}
+            ocrTokens={scanResult.ocr ?? []}
+            extractedFields={scanResult.evidence ?? []}
             imageHash={scanResult.image_hash}
           />
         </div>

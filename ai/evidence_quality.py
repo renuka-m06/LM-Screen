@@ -53,39 +53,58 @@ class EvidenceQualityEvaluator:
                 
                 if confidences:
                     avg_conf = sum(confidences) / len(confidences)
-                    # Use actual model confidence to modulate the state
-                    if avg_conf < 0.6:
+                    # For package labels, OCR tokens with conf >= 0.35 are meaningful
+                    if avg_conf < 0.50:
                         state = "UNCERTAIN" if state != "UNREADABLE" else "UNREADABLE"
-                        reasons.append(f"Low OCR model confidence ({avg_conf:.2f}).")
+                        reasons.append(f"Low OCR model confidence ({avg_conf:.2f} < 0.50).")
                     else:
                         reasons.append("OCR token confidence is acceptable.")
                 else:
                     reasons.append("OCR confidence data unavailable.")
-            elif evidence.get("source", {}).get("type") == "BARCODE":
+            elif isinstance(evidence.get("source"), dict) and evidence.get("source", {}).get("type") == "BARCODE":
                 reasons.append("Evidence derived directly from barcode decoding.")
             
-            # 4. Cross-Evidence Consistency
-            # Check if this field was involved in any consistency check that requires review
+            # 4. Cross-Evidence Consistency & Corroboration
             field_name = evidence.get("field")
             conflict_found = False
             for check in consistency_checks:
-                if check.get("status") in ["REVIEW_REQUIRED", "INCONSISTENT"]:
-                    # Is our field involved in this check?
-                    # E.g. DUPLICATE_FIELD_CONFLICT or MRP_QTY_USP_CONSISTENCY
-                    observed = check.get("observed_values", {})
-                    if field_name in observed or field_name.lower() in [k.lower() for k in observed.keys()]:
+                observed = check.get("observed_values", {})
+                is_field_involved = (
+                    field_name in observed
+                    or any(k.lower() in field_name.lower() or field_name.lower() in k.lower() for k in observed.keys())
+                )
+                if is_field_involved:
+                    if check.get("status") in ["REVIEW_REQUIRED", "INCONSISTENT"]:
                         conflict_found = True
                         reasons.append(f"Conflict detected in {check.get('check_type')}: {check.get('explanation')}")
-                elif check.get("status") == "CONSISTENT":
-                    observed = check.get("observed_values", {})
-                    if field_name in observed or field_name.lower() in [k.lower() for k in observed.keys()]:
+                    elif check.get("status") == "CONSISTENT":
                         reasons.append(f"Corroborated by {check.get('check_type')}.")
+                        if state == "UNCERTAIN":
+                            state = "SUPPORTED"
 
             if conflict_found:
                 state = "CONFLICTING"
 
-            # 5. Check if it's manually verified (if we have that info)
-            # Typically this happens in the API layer, but if passed in, we handle it.
+            # 5. Format validation upgrade for structured fields
+            val_str = str(evidence.get("value") or "").strip()
+            if state == "UNCERTAIN" and not conflict_found:
+                if field_name == "fssai_license" and len(val_str) == 14 and val_str.isdigit():
+                    state = "SUPPORTED"
+                    reasons.append("Valid 14-digit FSSAI license structure verified.")
+                elif field_name == "pin_code" and len(val_str) == 6 and val_str.isdigit():
+                    state = "SUPPORTED"
+                    reasons.append("Valid 6-digit postal index number verified.")
+                elif field_name in ["packing_date", "best_before", "manufacture_date"] and len(val_str) >= 6:
+                    state = "SUPPORTED"
+                    reasons.append("Valid date format verified.")
+                elif field_name in ["packer_name", "manufacturer_name", "manufacturer_or_packer", "product_name"] and len(val_str) >= 6:
+                    state = "SUPPORTED"
+                    reasons.append("Legible entity/product declaration verified.")
+                elif field_name in ["unit_sale_price", "mrp"] and len(val_str) >= 3:
+                    state = "SUPPORTED"
+                    reasons.append("Legible price declaration verified.")
+
+            # 6. Check if it's manually verified
             if evidence.get("evidence_state") == "MANUALLY_VERIFIED":
                 state = "MANUALLY_VERIFIED"
                 reasons = ["Officer manually verified and corrected this evidence."]

@@ -28,10 +28,16 @@ def submit_report(payload: ReportCreate, db: Session = Depends(get_db)):
     # 2. Hash reporter ID for privacy & rate limiting
     reporter_hash = hashlib.sha256("anonymous_citizen_session".encode()).hexdigest()
 
-    # 3. Save report
+    # 3. Save report (validate scan_id existence to prevent FK constraint failure)
+    valid_scan_id = None
+    if payload.scan_id:
+        from backend.app.models.models import Scan
+        if db.query(Scan).filter(Scan.id == payload.scan_id).first():
+            valid_scan_id = payload.scan_id
+
     report = CitizenReport(
         product_id=db_product.id if db_product else None,
-        scan_id=payload.scan_id,
+        scan_id=valid_scan_id,
         reporter_hash=reporter_hash,
         issue_category=payload.issue_category,
         description=payload.description,
@@ -43,9 +49,9 @@ def submit_report(payload: ReportCreate, db: Session = Depends(get_db)):
     db.refresh(report)
 
     # 4. Trigger issue clustering update if product identified
-    if db_product or payload.scan_id:
+    if db_product or valid_scan_id:
         clustering = ClusteringEngine(db)
-        clustering.update_cluster_from_report(scan_id=payload.scan_id, product_id=db_product.id if db_product else None)
+        clustering.update_cluster_from_report(scan_id=valid_scan_id, product_id=db_product.id if db_product else None)
 
     return ReportResponse(
         report_id=report.id,

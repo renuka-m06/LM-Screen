@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from backend.app.models.models import ProductCluster, Product, CitizenReport, Scan
-from backend.app.services.prioritization import PrioritizationEngine
+from backend.app.services.prioritization import EvidencePrioritizationEngine
 
 class ClusteringEngine:
     """
@@ -10,7 +10,7 @@ class ClusteringEngine:
     """
     def __init__(self, db: Session):
         self.db = db
-        self.prioritizer = PrioritizationEngine()
+        self.prioritizer = EvidencePrioritizationEngine()
 
     def update_cluster_from_report(self, scan_id: str = None, product_id: str = None, is_ai_flag: bool = False):
         cluster = None
