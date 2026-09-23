@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: lm-screen-api
+    runtime: python
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && python -c "import easyocr; easyocr.Reader(['en'], gpu=False, download_enabled=True)"
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lm-screen-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: "http://localhost:5173,http://localhost:3000"
+      - key: SECRET_KEY
+        generateValue: true
+
+databases:
+  - name: lm-screen-db
+    databaseName: lmscreen
+    user: lmscreen_user
+    plan: free
+    region: oregon

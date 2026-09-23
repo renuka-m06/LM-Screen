@@ -26,16 +26,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health Endpoint
 @app.get("/health")
 def health_check():
-    from ai.ocr_engine import _reader_ready, _prewarmed_reader
+    from ai.ocr_engine import _reader_ready, _prewarmed_reader, _prewarm_error
     ocr_ready = _reader_ready.is_set() and _prewarmed_reader is not None
-    return {
+    result = {
         "status": "ok" if ocr_ready else "starting",
         "service": "LM-Screen",
-        "ocr_ready": ocr_ready
+        "ocr_ready": ocr_ready,
     }
+    if not ocr_ready and _prewarm_error:
+        result["ocr_error"] = _prewarm_error
+    return result
 
 # Register Routers
 app.include_router(scans.router, prefix=settings.API_V1_PREFIX)

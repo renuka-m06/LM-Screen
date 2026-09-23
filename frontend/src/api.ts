@@ -1,6 +1,8 @@
 import type { ScanResult, PriorityQueueItem, DashboardStats, CaseDetail, CaseListResponse } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api/v1`
+  : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1');
 const TIMEOUT_MS = 45000; // 45 seconds — for fast endpoints
 const SCAN_TIMEOUT_MS = 180000; // 180 seconds — OCR/ML pipeline (CPU warm-up can take 2 min)
 
@@ -25,7 +27,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
       throw new Error('Request timed out. The server may be busy — please try again.');
     }
     // Network-level failure (server not running, no connection, etc.)
-    throw new Error('Cannot connect to the LM-Screen server. Please ensure the backend is running on port 8000.');
+    throw new Error('Cannot connect to the LM-Screen server. Please check your network connection or try again later.');
   }
 }
 

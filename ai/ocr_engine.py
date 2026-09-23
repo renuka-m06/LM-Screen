@@ -28,7 +28,11 @@ def _prewarm_reader():
     try:
         import easyocr
         print("[OCREngine] Pre-warming EasyOCR reader (CPU) …")
-        _prewarmed_reader = easyocr.Reader(['en'], gpu=False, download_enabled=False)
+        # download_enabled=True allows EasyOCR to fetch model weights on the first
+        # container run (e.g. Render).  The models are cached in ~/.EasyOCR/ for
+        # subsequent starts.  Subsequent warm-ups will see the cached files and skip
+        # the download without needing network access.
+        _prewarmed_reader = easyocr.Reader(['en'], gpu=False, download_enabled=True)
         print("[OCREngine] EasyOCR reader ready.")
     except Exception as exc:
         _prewarm_error = str(exc)
