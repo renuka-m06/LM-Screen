@@ -1,0 +1,51 @@
+# Keep Docker image lean — exclude everything that's not needed for the backend
+
+# Frontend build artifacts (Vercel handles this separately)
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Python cache
+__pycache__
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache
+*.egg-info
+.eggs
+
+# Virtual environments
+.venv
+venv
+env
+ENV
+
+# Local databases (production uses PostgreSQL via DATABASE_URL)
+*.db
+*.sqlite3
+
+# Uploaded images (ephemeral on Render anyway)
+uploads/*
+!uploads/.gitkeep
+
+# Large ML model files (downloaded at build time via Dockerfile RUN)
+models/*.pt
+models/*.pth
+
+# Development / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# IDE
+.vscode
+.idea
+.DS_Store
+
+# Docs and scratch files
+docs/
+scratch/
+brain/
+*.log

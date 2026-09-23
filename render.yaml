@@ -1,16 +1,17 @@
 services:
   - type: web
     name: lm-screen-api
-    runtime: python
+    # Use Docker runtime so we can install system packages (libzbar0, libgl1, etc.)
+    # that are not available in Render's native Python environment.
+    runtime: docker
     region: oregon
     plan: free
     branch: main
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && python -c "import easyocr; easyocr.Reader(['en'], gpu=False, download_enabled=True)"
-    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    # With Docker runtime, build/start commands come from the Dockerfile CMD.
+    # dockerfilePath is relative to the repo root (default: ./Dockerfile).
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
       - key: ENV
         value: production
       - key: DATABASE_URL
@@ -21,6 +22,8 @@ services:
         value: "http://localhost:5173,http://localhost:3000"
       - key: SECRET_KEY
         generateValue: true
+      - key: LOG_LEVEL
+        value: INFO
 
 databases:
   - name: lm-screen-db
